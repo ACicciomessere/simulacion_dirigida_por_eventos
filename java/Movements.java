@@ -5,9 +5,9 @@ public class Movements {
         this.particles = particles;
     }
 
-    public void update(double dt, double L, double r0, boolean periodic){
+    public void update(double dt, double r0, boolean periodic){
         for (Particle p : particles) {
-            p.updatePosition(L, r0, periodic);
+            p.updatePosition(r0, 1.0, periodic);
         }
     }
 

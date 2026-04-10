@@ -56,9 +56,9 @@ def main():
         print("Usage: python visualizer.py <L> <r0> [filename]")
         sys.exit(1)
         
-    L = float(sys.argv[1])
-    r0 = float(sys.argv[2])
-    filename = sys.argv[3] if len(sys.argv) > 3 else "../particles_frames.txt"
+    r0 = float(sys.argv[1])
+    filename = sys.argv[2] if len(sys.argv) > 3 else "../particles_frames.txt"
+    r_inner= 1.0
     
     frames = parse_frames(filename)
     if not frames:
@@ -73,12 +73,12 @@ def main():
     ax.set_aspect('equal')
     
     # Draw circular boundary
-    circle_boundary = plt.Circle((L/2, L/2), r0, color='g', fill=False, linestyle='-', linewidth=2)
+    circle_boundary = plt.Circle((50, 50), r0, color='g', fill=False, linestyle='-', linewidth=2)
     ax.add_patch(circle_boundary)
-    
-    # Draw the main bounding box just to be clear
-    rect_box = plt.Rectangle((0, 0), L, L, color='black', fill=False, linestyle='-', linewidth=2)
-    ax.add_patch(rect_box)
+
+    #Draw inner circular boundary
+    inner_circle_boundary = plt.Circle((50, 50), r_inner, color='r', fill=True, linestyle='--', linewidth=1)
+    ax.add_patch(inner_circle_boundary)
     
     # Use quiver to draw arrows
     quiver = ax.quiver([], [], [], [], color=[], scale=1, scale_units='xy', angles='xy')
@@ -101,9 +101,7 @@ def main():
         
         ux = frame['vx'] / norm
         uy = frame['vy'] / norm
-        
-        arrow_length = L * 0.02 # arrow length is 2% of the bounding box size
-        quiver.set_UVC(ux * arrow_length, uy * arrow_length)
+
         quiver.set_color(colors)
         
         ax.set_title(f"Simulation Frame: {frame_idx}")

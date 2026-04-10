@@ -25,35 +25,39 @@ public class Particle {
         this.isLeader = isLeader;
     }
 
-    public void updatePosition(double L, double r0, boolean periodic){
+    public void updatePosition(double r0, double r_inner, boolean periodic){
         double newX = this.x + VELOCITY * Math.cos(this.theta);
         double newY = this.y + VELOCITY * Math.sin(this.theta);
         
         boolean bounced = false;
-        if (r0 > 0) {
-            double dx = newX - L/2.0;
-            double dy = newY - L/2.0;
-            double dist = Math.sqrt(dx*dx + dy*dy);
-            if (dist + this.radius > r0) {
-                // Bounce off the circular wall
-                double phi = Math.atan2(dy, dx);
-                this.theta = Math.PI + 2 * phi - this.theta;
-                this.nextTheta = this.theta;
-                
-                double overlap = (dist + this.radius) - r0;
-                newX -= 2 * overlap * Math.cos(phi);
-                newY -= 2 * overlap * Math.sin(phi);
-                bounced = true;
-            }
+        double dist = Math.sqrt(newX*newX + newY*newY);
+        
+        // Bounce off outer circular wall (centered at origin)
+        if (r0 > 0 && dist + this.radius > r0) {
+            double phi = Math.atan2(newY, newX);
+            this.theta = Math.PI + 2 * phi - this.theta;
+            this.nextTheta = this.theta;
+            
+            double overlap = (dist + this.radius) - r0;
+            newX -= 2 * overlap * Math.cos(phi);
+            newY -= 2 * overlap * Math.sin(phi);
+            bounced = true;
+        }
+        
+        // Bounce off inner circular wall (centered at origin)
+        if (r_inner > 0 && dist - this.radius < r_inner) {
+            double phi = Math.atan2(newY, newX);
+            this.theta = Math.PI + 2 * phi - this.theta;
+            this.nextTheta = this.theta;
+            
+            double overlap = r_inner - (dist - this.radius);
+            newX += 2 * overlap * Math.cos(phi);
+            newY += 2 * overlap * Math.sin(phi);
+            bounced = true;
         }
 
         this.x = newX;
         this.y = newY;
-        
-        if (periodic && !bounced) {
-            this.x = (this.x % L + L) % L;
-            this.y = (this.y % L + L) % L;
-        }
     }
 
     public void calculateNextTheta(double eta, java.util.Random rand) {

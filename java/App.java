@@ -12,9 +12,9 @@ public class App {
 
         if (args.length < 8) {
             System.err.println(
-                    "HELP (File Mode): java -cp src App <StaticPath> <DynamicPath> <M> <rc> <periodic (true/false)> <iterations> <eta> <r0>");
+                    "HELP (File Mode): java -cp src App <StaticPath> <DynamicPath> <M> <rc> <periodic (true/false)> <iterations> <r0>");
             System.err.println(
-                    "HELP (Random Mode): java -cp src App <N> <L> <M> <rc> <periodic (true/false)> <iterations> <eta> <r0>");
+                    "HELP (Random Mode): java -cp src App <N> <M> <rc> <periodic (true/false)> <iterations> <r0>");
             System.exit(1);
         }
 
@@ -26,6 +26,7 @@ public class App {
         double eta = Double.parseDouble(args[6]);
         
         double r0 = Double.parseDouble(args[args.length - 1]);
+        double r_inner = 1.0; // Inner circle radius
         boolean circleLeader = false;
 
         if (args.length > 7) {
@@ -33,14 +34,13 @@ public class App {
         }
 
         ArrayList<Particle> particles = new ArrayList<>();
-        double L = 0.0;
         int N = 0;
+        double L = 2.0 * r0;  // For compatibility, but circles are centered at origin
 
         boolean isRandomMode = false;
         try {
             // tmb parametros desde la terminal, en este caso serian números fijos
             N = Integer.parseInt(args[0]);
-            L = Double.parseDouble(args[1]);
             isRandomMode = true;
         } catch (NumberFormatException e) {
             isRandomMode = false;
@@ -71,8 +71,8 @@ public class App {
                     double r_dist = Math.sqrt(rand.nextDouble()) * max_r;
                     double angle = rand.nextDouble() * 2 * Math.PI;
                     
-                    rx = L / 2.0 + r_dist * Math.cos(angle);
-                    ry = L / 2.0 + r_dist * Math.sin(angle);
+                    rx = r_dist * Math.cos(angle);
+                    ry = r_dist * Math.sin(angle);
                     
                     theta = rand.nextDouble() * 2 * Math.PI;
 
@@ -110,7 +110,6 @@ public class App {
                 Scanner dynamicScanner = new Scanner(new File(dynamicPath));
 
                 N = Integer.parseInt(staticScanner.nextLine().trim());
-                L = Double.parseDouble(staticScanner.nextLine().trim());
 
                 for (int i = 0; i < N; i++) {
                     String[] staticParts = staticScanner.nextLine().trim().split("\\s+");
@@ -121,7 +120,10 @@ public class App {
 
                     double rx = Double.parseDouble(dynamicParts[0]);
                     double ry = Double.parseDouble(dynamicParts[1]);
-                    double theta = Double.parseDouble(dynamicParts[2]);// TODO, por ahora no existe en los archivos
+                    double theta = Double.parseDouble(dynamicParts[2]);
+                    // Normalize to center at origin for circular boundary
+                    rx = rx - L / 2.0;
+                    ry = ry - L / 2.0;
 
                     // en este caso no se hacen todos los chequeos como en el anterior porq se asume
                     // q los archivos son correctos TODO
@@ -139,18 +141,19 @@ public class App {
 
         System.out.println("Successfully parsed " + N + " particles.");
 
-        if (L / M <= rc) {
-            System.err.println("Error: The condition L/M > rc is not met. (L/M=" + (L / M) + ", rc=" + rc + ")");
+        double cellSize = 2.0 * r0 / M;
+        if (cellSize <= rc) {
+            System.err.println("Error: The condition L/M > rc is not met. (L/M=" + cellSize + ", rc=" + rc + ")");
             System.err.println("Execution stopped to prevent loss of neighbors.");
             System.exit(1);
         }
 
         // Ejecuta Cell Index Method para calcular los vecinos
-        automataCelular(particles, L, M, rc, periodic, iterations, eta, circleLeader, r0);
+        automataCelular(particles, L, M, rc, periodic, iterations, eta, circleLeader, r0, r_inner);
     }
 
     public static void automataCelular(ArrayList<Particle> particles, double L, int M, double rc, boolean periodic,
-            int iterations, double eta, boolean circleLeader, double r0) {
+            int iterations, double eta, boolean circleLeader, double r0, double r_inner) {
         java.util.Random rand = new java.util.Random();
         System.out.println("Starting simulation for " + iterations + " iterations...");
 
@@ -165,7 +168,7 @@ public class App {
 
             for (Particle p : particles) {
                 p.updateTheta();
-                p.updatePosition(L, r0, periodic);
+                p.updatePosition(r0, r_inner, periodic);
             }
 
             exportFrame(t, particles, L);
