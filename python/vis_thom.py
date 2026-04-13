@@ -45,15 +45,16 @@ def parse_frames(filename):
 
 
 def main():
-    # Usage: python vis_thom.py <L> <r0> [filename] [output_gif]
+    # Usage: python vis_thom.py <r0> [filename] [output_gif]
     if len(sys.argv) < 3:
-        print("Usage: python vis_thom.py <L> <r0> [filename] [output_gif]")
+        print("Usage: python vis_thom.py <r0> [filename] [output_gif]")
         sys.exit(1)
 
     r0 = float(sys.argv[1])
-    filename = sys.argv[2] if len(sys.argv) > 3 else "particles_frames.txt"
-    output_gif = sys.argv[3] if len(sys.argv) > 4 else "output.gif"
+    filename = sys.argv[2] if len(sys.argv) > 2 else "particles_frames.txt"
+    output_gif = sys.argv[3] if len(sys.argv) > 3 else "output.gif"
     r_inner = 1.0  
+    L = 2.0 * r0
 
     frames = parse_frames(filename)
     if not frames:
@@ -61,14 +62,14 @@ def main():
         sys.exit(1)
 
     fig, ax = plt.subplots(figsize=(8, 8))
-    ax.set_xlim(0, L)
-    ax.set_ylim(0, L)
+    ax.set_xlim(-r0, r0)
+    ax.set_ylim(-r0, r0)
     ax.set_aspect('equal')
 
-    circle_boundary = plt.Circle((50, 50), r0, color='g', fill=False, linestyle='-', linewidth=2)
+    circle_boundary = plt.Circle((0, 0), r0, color='g', fill=False, linestyle='-', linewidth=2)
     ax.add_patch(circle_boundary)
 
-    inner_circle_boundary = plt.Circle((50, 50), r_inner, color='r', fill=True, linestyle='--', linewidth=1)
+    inner_circle_boundary = plt.Circle((0, 0), r_inner, color='r', fill=True, linestyle='--', linewidth=1)
     ax.add_patch(inner_circle_boundary)
 
     init_data = frames[0]

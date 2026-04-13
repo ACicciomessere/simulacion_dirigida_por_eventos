@@ -68,16 +68,16 @@ def main():
     fig, ax = plt.subplots(figsize=(8, 8))
     
     # Setup axes limits
-    ax.set_xlim(0, L)
-    ax.set_ylim(0, L)
+    ax.set_xlim(-r0, r0)
+    ax.set_ylim(-r0, r0)
     ax.set_aspect('equal')
     
     # Draw circular boundary
-    circle_boundary = plt.Circle((50, 50), r0, color='g', fill=False, linestyle='-', linewidth=2)
+    circle_boundary = plt.Circle((0, 0), r0, color='g', fill=False, linestyle='-', linewidth=2)
     ax.add_patch(circle_boundary)
 
     #Draw inner circular boundary
-    inner_circle_boundary = plt.Circle((50, 50), r_inner, color='r', fill=True, linestyle='--', linewidth=1)
+    inner_circle_boundary = plt.Circle((0, 0), r_inner, color='r', fill=True, linestyle='--', linewidth=1)
     ax.add_patch(inner_circle_boundary)
     
     # Use quiver to draw arrows

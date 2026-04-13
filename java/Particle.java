@@ -61,6 +61,7 @@ public class Particle {
     }
 
     public void calculateNextTheta(double eta, java.util.Random rand) {
+        //TODO eta no deberia existir
         double sinSum = Math.sin(this.theta);
         double cosSum = Math.cos(this.theta);
 

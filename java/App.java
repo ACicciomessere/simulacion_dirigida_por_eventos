@@ -10,7 +10,7 @@ import java.util.Scanner;
 public class App {
     public static void main(String[] args) {
 
-        if (args.length < 8) {
+        if (args.length < 7) {
             System.err.println(
                     "HELP (File Mode): java -cp src App <StaticPath> <DynamicPath> <M> <rc> <periodic (true/false)> <iterations> <r0>");
             System.err.println(
@@ -19,18 +19,17 @@ public class App {
         }
 
         // recibimos los parametros desde la terminal, al correr run.sh
-        int M = Integer.parseInt(args[2]);
-        double rc = Double.parseDouble(args[3]);
-        boolean periodic = Boolean.parseBoolean(args[4]);
-        int iterations = Integer.parseInt(args[5]);
-        double eta = Double.parseDouble(args[6]);
+        int M = Integer.parseInt(args[1]);
+        double rc = Double.parseDouble(args[2]);
+        boolean periodic = Boolean.parseBoolean(args[3]);
+        int iterations = Integer.parseInt(args[4]);
         
         double r0 = Double.parseDouble(args[args.length - 1]);
         double r_inner = 1.0; // Inner circle radius
         boolean circleLeader = false;
 
         if (args.length > 7) {
-            circleLeader = Boolean.parseBoolean(args[7]);
+            circleLeader = Boolean.parseBoolean(args[5]);
         }
 
         ArrayList<Particle> particles = new ArrayList<>();
@@ -143,27 +142,30 @@ public class App {
 
         double cellSize = 2.0 * r0 / M;
         if (cellSize <= rc) {
+            //TODO, esta condición se mantiene al anterior TP??
             System.err.println("Error: The condition L/M > rc is not met. (L/M=" + cellSize + ", rc=" + rc + ")");
             System.err.println("Execution stopped to prevent loss of neighbors.");
             System.exit(1);
         }
 
         // Ejecuta Cell Index Method para calcular los vecinos
-        automataCelular(particles, L, M, rc, periodic, iterations, eta, circleLeader, r0, r_inner);
+        automataCelular(particles, L, M, rc, periodic, iterations, circleLeader, r0, r_inner);
     }
 
     public static void automataCelular(ArrayList<Particle> particles, double L, int M, double rc, boolean periodic,
-            int iterations, double eta, boolean circleLeader, double r0, double r_inner) {
+            int iterations, boolean circleLeader, double r0, double r_inner) {
+        
         java.util.Random rand = new java.util.Random();
         System.out.println("Starting simulation for " + iterations + " iterations...");
+        double ETA = 0.1; //TODO eta no deberia existir
 
         exportFrame(0, particles, L); // Exportamos el estado inicial verdadero
 
         for (int t = 1; t <= iterations; t++) {
-            cellIndexMethod(particles, L, M, rc, periodic);
+            cellIndexMethod(particles, L, M, rc, periodic, r0);
 
             for (Particle p : particles) {
-                p.calculateNextTheta(eta, rand);
+                p.calculateNextTheta(ETA, rand);
             }
 
             for (Particle p : particles) {
@@ -213,7 +215,7 @@ public class App {
         return diff;
     }
 
-    public static long cellIndexMethod(ArrayList<Particle> particles, double L, int M, double rc, boolean periodic) {
+    public static long cellIndexMethod(ArrayList<Particle> particles, double L, int M, double rc, boolean periodic, double r0) {
         for (Particle p : particles)
             p.clearNeighbours();
 
@@ -234,8 +236,9 @@ public class App {
         int searchRange = (int) Math.ceil((rc + 2 * r_max) / cellSize);
 
         for (Particle p : particles) {
-            int cellX = (int) Math.floor(p.getX() / cellSize);
-            int cellY = (int) Math.floor(p.getY() / cellSize);
+            // With this:
+            int cellX = (int) Math.floor((p.getX() + r0) / cellSize);
+            int cellY = (int) Math.floor((p.getY() + r0) / cellSize);
 
             if (cellX == M)
                 cellX = M - 1;
