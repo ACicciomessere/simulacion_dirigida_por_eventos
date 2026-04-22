@@ -24,7 +24,8 @@ rm -f particles_frames.txt
 echo "--> Running Simulation with R0=$R0"
 cd java
 # Run the application with configuration args
-java App $N $M $RC $PERIODIC $ITERATIONS $CIRCLE_LEADER $R0
+# java App $N $M $RC $PERIODIC $ITERATIONS $CIRCLE_LEADER $R0
+java Main
 cd ..
 
 echo "--> Launching Python Visualizer..."

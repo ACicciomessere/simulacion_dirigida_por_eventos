@@ -131,34 +131,7 @@ public class Particle {
         collisionCount++;
     }
 
-    // public double timeToHitCircle(double cx, double cy, double R, boolean
-    // isInnerWall) {
-    // double dx = this.x - cx;
-    // double dy = this.y - cy;
-
-    // double dvx = this.vx;
-    // double dvy = this.vy;
-
-    // double targetRadius = isInnerWall ? R + this.radius : R - this.radius;
-    // double a = dvx * dvx + dvy * dvy;
-    // double b = 2 * (dx * dvx + dy * dvy);
-    // double c = dx * dx + dy * dy - targetRadius * targetRadius;
-
-    // double discriminant = b * b - 4 * a * c;
-    // if (discriminant < 0)
-    // return Double.POSITIVE_INFINITY;
-
-    // double t1 = (-b - Math.sqrt(discriminant)) / (2 * a);
-    // double t2 = (-b + Math.sqrt(discriminant)) / (2 * a);
-
-    // if (t1 > 1e-12)
-    // return t1;
-    // if (t2 > 1e-12)
-    // return t2;
-
-    // return Double.POSITIVE_INFINITY;
-    // }
-
+    // cuánto tiempo falta para la colisión
     public double timeToHitCircle(double cx, double cy, double R, boolean isInnerWall) {
         double dx = this.x - cx;
         double dy = this.y - cy;
@@ -180,12 +153,12 @@ public class Particle {
         if (!isInnerWall) {
             // Partícula DENTRO del recinto: siempre usar la raíz MAYOR (t2)
             // t1 es la intersección "de entrada" que ya quedó atrás
-            return t2 > 1e-12 ? t2 : Double.POSITIVE_INFINITY;
+            return t2 > 0 ? t2 : Double.POSITIVE_INFINITY;
         } else {
             // Partícula FUERA del obstáculo: usar la raíz MENOR (t1)
-            if (t1 > 1e-12)
+            if (t1 > 0)
                 return t1;
-            if (t2 > 1e-12)
+            if (t2 > 0)
                 return t2;
             return Double.POSITIVE_INFINITY;
         }

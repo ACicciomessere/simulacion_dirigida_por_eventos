@@ -17,7 +17,8 @@ public class Main {
         double CX = 0.0;
         double CY = 0.0;
 
-        // --- Crear Partículas ---
+        // INFO: 1. se definen las posiciones y velocidades iniciales, los radios y
+        // tamaño de la caja
         List<Particle> particles = new ArrayList<>();
         Random rand = new Random();
 
@@ -28,18 +29,13 @@ public class Main {
             do {
                 overlap = false;
 
-                // generar en bounding box (cuadrado)
                 x = CX - R_OUTER + rand.nextDouble() * (2 * R_OUTER);
                 y = CY - R_OUTER + rand.nextDouble() * (2 * R_OUTER);
 
-                // double distToCenter = Math.sqrt((x - CX) * (x - CX) + (y - CY) * (y - CY));
+                // 1.1 que cada particula nueva x no se superponga con ninguna de las existentes
+                // ni con las paredes
 
-                // // condición: dentro del círculo grande y fuera del interno
-                // if (distToCenter > (R_OUTER - RADIUS) || distToCenter < (R_INNER + RADIUS)) {
-                // overlap = true;
-                // continue;
-                // }
-
+                // paredes
                 double distToCenter = Math.sqrt((x - CX) * (x - CX) + (y - CY) * (y - CY));
 
                 if (distToCenter > (R_OUTER - RADIUS) ||
@@ -47,7 +43,7 @@ public class Main {
                     overlap = true;
                 }
 
-                // evitar superposición con otras partículas
+                // entre partículas
                 for (Particle existing : particles) {
                     double distSq = Math.pow(x - existing.x, 2) + Math.pow(y - existing.y, 2);
                     if (distSq < Math.pow(2 * RADIUS, 2)) {
