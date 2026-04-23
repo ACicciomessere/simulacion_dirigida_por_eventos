@@ -194,7 +194,7 @@ def plot_all(results, r_outer=40, r_inner=1, particle_radius=1, out_prefix="plot
     by_N = {N: [r for r in results if r['N'] == N] for N in Ns}
 
     fig = plt.figure(figsize=(18, 14))
-    fig.patch.set_facecolor('#0d1117')
+    fig.patch.set_facecolor('white')
     gs = gridspec.GridSpec(3, 3, figure=fig, hspace=0.45, wspace=0.38)
 
     ax_cfc  = fig.add_subplot(gs[0, 0])   # 1.2a: Cfc(t)
@@ -206,13 +206,13 @@ def plot_all(results, r_outer=40, r_inner=1, particle_radius=1, out_prefix="plot
     ax_Jin  = fig.add_subplot(gs[2, 2])   # 1.4b: Jin @ S≈2 vs N
 
     for ax in [ax_cfc, ax_J, ax_Fu, ax_Fest, ax_Tss, ax_prof, ax_Jin]:
-        ax.set_facecolor('#161b22')
-        ax.tick_params(colors='#c9d1d9')
-        ax.xaxis.label.set_color('#c9d1d9')
-        ax.yaxis.label.set_color('#c9d1d9')
-        ax.title.set_color('#e6edf3')
+        ax.set_facecolor('white')
+        ax.tick_params(colors='black')
+        ax.xaxis.label.set_color('black')
+        ax.yaxis.label.set_color('black')
+        ax.title.set_color('black')
         for spine in ax.spines.values():
-            spine.set_edgecolor('#30363d')
+            spine.set_edgecolor('black')
 
     # ── 1.2a: Cfc(t) para cada N (primera realización) ──
     ax_cfc.set_title("1.2  Cfc(t) — conteo acumulado fresca→usada")
@@ -226,7 +226,7 @@ def plot_all(results, r_outer=40, r_inner=1, particle_radius=1, out_prefix="plot
         t_line = np.linspace(r0['times'][0], r0['times'][-1], 100)
         ax_cfc.plot(t_line, J * t_line, color=COLORS[i % len(COLORS)],
                     ls='--', lw=1, alpha=0.6)
-    ax_cfc.legend(fontsize=8, labelcolor='#c9d1d9', facecolor='#161b22', edgecolor='#30363d')
+    ax_cfc.legend(fontsize=8, labelcolor='black', facecolor='white', edgecolor='black')
 
     # ── 1.2b: <J>(N) con barra de error ──
     ax_J.set_title("1.2  Scanning rate  ⟨J⟩  vs  N")
