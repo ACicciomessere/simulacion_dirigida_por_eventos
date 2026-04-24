@@ -1,6 +1,7 @@
 public class Particle {
     public double x, y, vx, vy, radius, mass;
     public int collisionCount;
+    public int state = 0; // 0 = fresca, 1 = usada
 
     public Particle(double x, double y, double vx, double vy, double radius, double mass) {
         this.x = x;

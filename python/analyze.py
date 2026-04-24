@@ -1,20 +1,18 @@
 """
-analyze.py  –  Puntos 1.2, 1.3 y 1.4 del Sistema 1 (Scanning rate en recinto circular)
+analyze.py  –  Puntos 1.1, 1.2, 1.3 y 1.4 del Sistema 1 (Scanning rate en recinto circular)
 
-Lee el archivo output.txt generado por la simulación Java original (sin modificar).
-Formato esperado:
+Formato esperado del output.txt:
     # t
-    # x y vx vy
+    # x y vx vy state
     <tiempo>
-    x1 y1 vx1 vy1
-    x2 y2 vx2 vy2
+    x1 y1 vx1 vy1 state1
     ...
 
-Uso:
-    python analyze.py output.txt [--N 200] [--r_outer 40] [--r_inner 1] [--radius 1]
+Uso (análisis 1.2/1.3/1.4):
+    python analyze.py output.txt [output2.txt ...] [--Ns 200,200] [--out plot]
 
-Si hay múltiples realizaciones, pasar varios archivos:
-    python analyze.py run1/output.txt run2/output.txt run3/output.txt
+Uso (timing 1.1):
+    python analyze.py --timing runs/timing.txt [--out timing]
 """
 
 import sys
@@ -25,16 +23,17 @@ import matplotlib.gridspec as gridspec
 from scipy import stats
 
 # ──────────────────────────────────────────────────────────────
-# 1. Parser del output.txt original
+# 1. Parser del output.txt
 # ──────────────────────────────────────────────────────────────
 
 def parse_output(filepath):
     """
     Devuelve:
-        times  : array (T,)            tiempos de los snapshots
-        states : array (T, N, 4)       x, y, vx, vy  para cada snapshot
+        times          : array (T,)
+        states         : array (T, N, 4)   x, y, vx, vy
+        particle_states: array (T, N)      0=fresca, 1=usada  (-1 si no disponible)
     """
-    times, frames = [], []
+    times, frames, state_frames = [], [], []
     with open(filepath) as f:
         lines = [l.strip() for l in f if l.strip() and not l.startswith('#')]
 
@@ -47,73 +46,83 @@ def parse_output(filepath):
             continue
         i += 1
         frame = []
+        sf = []
         while i < len(lines):
             parts = lines[i].split()
-            if len(parts) == 4:
-                frame.append([float(v) for v in parts])
+            if len(parts) in (4, 5):
+                frame.append([float(v) for v in parts[:4]])
+                sf.append(int(parts[4]) if len(parts) == 5 else -1)
                 i += 1
             else:
                 break
         if frame:
             times.append(t)
             frames.append(frame)
+            state_frames.append(sf)
 
-    times  = np.array(times)
-    states = np.array(frames)   # (T, N, 4)
-    return times, states
+    times          = np.array(times)
+    states         = np.array(frames)       # (T, N, 4)
+    particle_states = np.array(state_frames) # (T, N)
+    return times, states, particle_states
 
 
 # ──────────────────────────────────────────────────────────────
-# 2. Reconstruir estados fresca/usada y detectar colisiones
+# 2. Reconstruir estados y detectar colisiones
 # ──────────────────────────────────────────────────────────────
 
-def reconstruct_states(times, states, r_outer, r_inner, particle_radius, tol=0.5):
+def reconstruct_states(times, states, particle_states_raw,
+                       r_outer, r_inner, particle_radius, tol=0.5):
     """
-    Para cada snapshot, infiere si cada partícula es 'fresca' (0) o 'usada' (1).
-
-    Reglas (igual que la simulación):
-      - Arranca todo el mundo fresca.
-      - Si en cualquier snapshot una partícula está muy cerca del obstáculo interno
-        (dist_to_center ≈ r_inner + particle_radius), marcamos ese evento como
-        colisión con el centro → la partícula pasa a 'usada'.
-      - Si una partícula usada llega muy cerca de la pared externa
-        (dist_to_center ≈ r_outer - particle_radius), vuelve a ser 'fresca'.
+    Usa el estado real de Java si está disponible (columna 5),
+    si no, infiere desde posiciones.
 
     Devuelve:
-        particle_state  : array (T, N)   0 = fresca, 1 = usada  en cada instante
-        cfc_series      : array (T,)     conteo acumulado de transiciones fresh→used
-        hit_center_mask : array (T, N)   True si en ese snapshot hubo colisión con centro
-        hit_outer_mask  : array (T, N)   True si en ese snapshot hubo colisión con pared
+        particle_state : (T, N)   0=fresca, 1=usada
+        cfc_series     : (T,)     conteo acumulado fresca→usada
     """
     T, N, _ = states.shape
-    x  = states[:, :, 0]   # (T, N)
-    y  = states[:, :, 1]
-    vx = states[:, :, 2]
-    vy = states[:, :, 3]
+    has_state = (particle_states_raw.shape == (T, N) and
+                 np.all(particle_states_raw >= 0))
 
-    dist = np.sqrt(x**2 + y**2)   # distancia al centro en cada snapshot
+    if has_state:
+        particle_state = particle_states_raw.copy()
 
-    # Detectar snapshots donde la partícula está "en contacto" con cada pared
+        # Cfc: contar transiciones 0→1 entre snapshots consecutivos
+        cfc = 0
+        cfc_series = np.zeros(T)
+        prev = particle_state[0].copy()
+        for t in range(1, T):
+            cfc += int(np.sum((prev == 0) & (particle_state[t] == 1)))
+            cfc_series[t] = cfc
+            prev = particle_state[t].copy()
+        return particle_state, cfc_series
+
+    # Fallback: inferencia por posición
+    x   = states[:, :, 0]
+    y   = states[:, :, 1]
+    vx  = states[:, :, 2]
+    vy  = states[:, :, 3]
+    dist = np.sqrt(x**2 + y**2)
+
     contact_inner = np.abs(dist - (r_inner + particle_radius)) < tol
     contact_outer = np.abs(dist - (r_outer - particle_radius)) < tol
 
-    # Reconstruir estado snapshot a snapshot
-    particle_state = np.zeros((T, N), dtype=int)  # 0=fresca, 1=usada
-    current_state  = np.zeros(N, dtype=int)        # estado actual de cada partícula
+    particle_state = np.zeros((T, N), dtype=int)
+    current_state  = np.zeros(N, dtype=int)
     cfc = 0
     cfc_series = np.zeros(T)
 
     for t in range(T):
         for j in range(N):
             if contact_inner[t, j] and current_state[j] == 0:
-                current_state[j] = 1   # fresca → usada
+                current_state[j] = 1
                 cfc += 1
             elif contact_outer[t, j] and current_state[j] == 1:
-                current_state[j] = 0   # usada → fresca
+                current_state[j] = 0
         particle_state[t] = current_state.copy()
         cfc_series[t] = cfc
 
-    return particle_state, cfc_series, contact_inner, contact_outer
+    return particle_state, cfc_series
 
 
 # ──────────────────────────────────────────────────────────────
@@ -121,55 +130,60 @@ def reconstruct_states(times, states, r_outer, r_inner, particle_radius, tol=0.5
 # ──────────────────────────────────────────────────────────────
 
 def compute_J(times, cfc_series):
-    """Regresión lineal de Cfc(t) → pendiente = J (scanning rate)."""
-    slope, intercept, r, p, se = stats.linregress(times, cfc_series)
+    slope, _, _, _, se = stats.linregress(times, cfc_series)
     return slope, se
 
+
 def compute_Fu(particle_state):
-    """Fu(t) = fracción de partículas usadas en cada snapshot."""
     return particle_state.mean(axis=1)
 
-def compute_radial_profiles(times, states, particle_state, r_inner, r_outer,
-                             dS=0.2):
-    """
-    Para cada snapshot: selecciona partículas frescas con velocidad radial
-    apuntando al centro (Rj·vj < 0), las agrupa por capa S, calcula
-    densidad media y velocidad radial media.
 
-    Devuelve arrays indexados por shell:
-        S_centers, avg_density, avg_velocity, flux
+def compute_radial_profiles(times, states, particle_state, r_inner, r_outer, dS=0.2):
+    """
+    Perfiles radiales de partículas frescas apuntando al centro.
+
+    Densidad: promedio temporal sobre TODOS los snapshots (incluye ceros).
+    Velocidad: promedio ponderado por número de partículas.
+
+    Devuelve: S_centers, avg_density, avg_velocity, flux
     """
     num_shells = int(np.ceil((r_outer - r_inner) / dS))
     shell_edges = r_inner + np.arange(num_shells + 1) * dS
 
-    sum_density  = np.zeros(num_shells)
-    sum_velocity = np.zeros(num_shells)
-    count_snaps  = np.zeros(num_shells, dtype=int)  # snapshots con datos en esa capa
+    # Acumuladores
+    sum_density    = np.zeros(num_shells)       # sum(n_in/area) sobre todos los snapshots
+    sum_vel_num    = np.zeros(num_shells)       # sum de |v_radial| individual
+    count_particles = np.zeros(num_shells, dtype=int)  # total partículas acumuladas
 
-    x  = states[:, :, 0]
-    y  = states[:, :, 1]
-    vx = states[:, :, 2]
-    vy = states[:, :, 3]
+    x   = states[:, :, 0]
+    y   = states[:, :, 1]
+    vx  = states[:, :, 2]
+    vy  = states[:, :, 3]
     dist = np.sqrt(x**2 + y**2)
+    T = len(times)
 
-    for t in range(len(times)):
-        fresh_mask = (particle_state[t] == 0)
-        radial_vel = (x[t] * vx[t] + y[t] * vy[t]) / (dist[t] + 1e-15)
+    areas = np.pi * (shell_edges[1:]**2 - shell_edges[:-1]**2)
+
+    for t in range(T):
+        fresh_mask   = (particle_state[t] == 0)
+        radial_vel   = (x[t] * vx[t] + y[t] * vy[t]) / (dist[t] + 1e-15)
         toward_center = (radial_vel < 0) & fresh_mask
 
         for k in range(num_shells):
-            in_shell = toward_center & (dist[t] >= shell_edges[k]) & (dist[t] < shell_edges[k+1])
-            n_in = np.sum(in_shell)
-            if n_in == 0:
-                continue
-            area = np.pi * (shell_edges[k+1]**2 - shell_edges[k]**2)
-            sum_density[k]  += n_in / area
-            sum_velocity[k] += np.mean(np.abs(radial_vel[in_shell]))
-            count_snaps[k]  += 1
+            in_shell = (toward_center &
+                        (dist[t] >= shell_edges[k]) &
+                        (dist[t] <  shell_edges[k + 1]))
+            n_in = int(np.sum(in_shell))
+            sum_density[k] += n_in / areas[k]   # 0 si n_in=0, promediado luego por T
+            if n_in > 0:
+                sum_vel_num[k]    += float(np.sum(np.abs(radial_vel[in_shell])))
+                count_particles[k] += n_in
 
-    valid = count_snaps > 0
-    avg_density  = np.where(valid, sum_density  / np.where(count_snaps>0, count_snaps, 1), 0.0)
-    avg_velocity = np.where(valid, sum_velocity / np.where(count_snaps>0, count_snaps, 1), 0.0)
+    avg_density  = sum_density / T
+    valid        = count_particles > 0
+    avg_velocity = np.where(valid,
+                            sum_vel_num / np.where(count_particles > 0, count_particles, 1),
+                            0.0)
     flux = avg_density * avg_velocity
 
     S_centers = r_inner + (np.arange(num_shells) + 0.5) * dS
@@ -177,33 +191,50 @@ def compute_radial_profiles(times, states, particle_state, r_inner, r_outer,
 
 
 # ──────────────────────────────────────────────────────────────
-# 4. Plots
+# 4. Plot de timing (1.1)
+# ──────────────────────────────────────────────────────────────
+
+def plot_timing(timing_file, out_prefix="analisis_timing"):
+    data = np.loadtxt(timing_file, comments='#')
+    if data.ndim == 1:
+        data = data.reshape(1, -1)
+    Ns      = data[:, 0].astype(int)
+    elapsed = data[:, 1] / 1000.0  # ms → s
+
+    fig, ax = plt.subplots(figsize=(7, 5))
+    ax.plot(Ns, elapsed, 'o-', color='#457b9d', lw=2, ms=7)
+    ax.set_xlabel("N  (número de partículas)", fontsize=12)
+    ax.set_ylabel("Tiempo de ejecución  [s]", fontsize=12)
+    ax.set_title("1.1  Tiempo de ejecución vs N  (tf = 5 s)", fontsize=13)
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    plt.savefig(out_prefix + ".png", dpi=150, bbox_inches='tight')
+    print(f"Figura guardada: {out_prefix}.png")
+    plt.show()
+
+
+# ──────────────────────────────────────────────────────────────
+# 5. Plot principal (1.2, 1.3, 1.4)
 # ──────────────────────────────────────────────────────────────
 
 COLORS = ['#e63946', '#457b9d', '#2a9d8f', '#e9c46a', '#f4a261']
 
-def plot_all(results, r_outer=40, r_inner=1, particle_radius=1, out_prefix="plot"):
-    """
-    results: list of dicts, one per (N, realization):
-        { 'N': int, 'times': ..., 'cfc_series': ..., 'Fu': ...,
-          'S': ..., 'density': ..., 'velocity': ..., 'flux': ... }
-    """
-    Ns = sorted(set(r['N'] for r in results))
 
-    # ── Agrupar por N ──
+def plot_all(results, r_outer=40, r_inner=1, particle_radius=1, out_prefix="plot"):
+    Ns   = sorted(set(r['N'] for r in results))
     by_N = {N: [r for r in results if r['N'] == N] for N in Ns}
 
     fig = plt.figure(figsize=(18, 14))
     fig.patch.set_facecolor('white')
     gs = gridspec.GridSpec(3, 3, figure=fig, hspace=0.45, wspace=0.38)
 
-    ax_cfc  = fig.add_subplot(gs[0, 0])   # 1.2a: Cfc(t)
-    ax_J    = fig.add_subplot(gs[0, 1])   # 1.2b: <J>(N)
-    ax_Fu   = fig.add_subplot(gs[1, 0])   # 1.3a: Fu(t)
-    ax_Fest = fig.add_subplot(gs[1, 1])   # 1.3b: Fest vs N
-    ax_Tss  = fig.add_subplot(gs[1, 2])   # 1.3c: T_ss vs N
-    ax_prof = fig.add_subplot(gs[2, :2])  # 1.4a: perfiles radiales (N fijo)
-    ax_Jin  = fig.add_subplot(gs[2, 2])   # 1.4b: Jin @ S≈2 vs N
+    ax_cfc  = fig.add_subplot(gs[0, 0])
+    ax_J    = fig.add_subplot(gs[0, 1])
+    ax_Fu   = fig.add_subplot(gs[1, 0])
+    ax_Fest = fig.add_subplot(gs[1, 1])
+    ax_Tss  = fig.add_subplot(gs[1, 2])
+    ax_prof = fig.add_subplot(gs[2, :2])
+    ax_Jin  = fig.add_subplot(gs[2, 2])
 
     for ax in [ax_cfc, ax_J, ax_Fu, ax_Fest, ax_Tss, ax_prof, ax_Jin]:
         ax.set_facecolor('white')
@@ -214,19 +245,17 @@ def plot_all(results, r_outer=40, r_inner=1, particle_radius=1, out_prefix="plot
         for spine in ax.spines.values():
             spine.set_edgecolor('black')
 
-    # ── 1.2a: Cfc(t) para cada N (primera realización) ──
+    # ── 1.2a: Cfc(t) ──
     ax_cfc.set_title("1.2  Cfc(t) — conteo acumulado fresca→usada")
     ax_cfc.set_xlabel("t  [s]"); ax_cfc.set_ylabel("Cfc(t)")
     for i, N in enumerate(Ns):
         r0 = by_N[N][0]
-        ax_cfc.plot(r0['times'], r0['cfc_series'], color=COLORS[i % len(COLORS)],
-                    lw=1.5, label=f"N={N}")
-        # línea de regresión
+        c  = COLORS[i % len(COLORS)]
+        ax_cfc.plot(r0['times'], r0['cfc_series'], color=c, lw=1.5, label=f"N={N}")
         J, _ = compute_J(r0['times'], r0['cfc_series'])
         t_line = np.linspace(r0['times'][0], r0['times'][-1], 100)
-        ax_cfc.plot(t_line, J * t_line, color=COLORS[i % len(COLORS)],
-                    ls='--', lw=1, alpha=0.6)
-    ax_cfc.legend(fontsize=8, labelcolor='black', facecolor='white', edgecolor='black')
+        ax_cfc.plot(t_line, J * t_line, color=c, ls='--', lw=1, alpha=0.6)
+    ax_cfc.legend(fontsize=8)
 
     # ── 1.2b: <J>(N) con barra de error ──
     ax_J.set_title("1.2  Scanning rate  ⟨J⟩  vs  N")
@@ -236,87 +265,49 @@ def plot_all(results, r_outer=40, r_inner=1, particle_radius=1, out_prefix="plot
         Js = [compute_J(r['times'], r['cfc_series'])[0] for r in by_N[N]]
         J_means.append(np.mean(Js)); J_stds.append(np.std(Js)); N_vals.append(N)
     ax_J.errorbar(N_vals, J_means, yerr=J_stds, fmt='o-',
-                  color='#58a6ff', ecolor='#f0883e', capsize=5, lw=2)
+                  color='#457b9d', ecolor='#e63946', capsize=5, lw=2)
 
     # ── 1.3a: Fu(t) ──
-    ax_Fu.set_title("1.3a  Fu(t) — fracción de partículas usadas", fontweight='bold')
-    ax_Fu.set_xlabel("t  [s]", fontsize=10); ax_Fu.set_ylabel("Fu(t) = Nu/N", fontsize=10)
-    
-    # Colores más saturados para mayor contraste
-    COLORS_SATURATED = ['#ff1744', '#1e88e5', '#00c853', '#ffb300', '#d32f2f']
-    
+    ax_Fu.set_title("1.3  Fu(t) — fracción de partículas usadas")
+    ax_Fu.set_xlabel("t  [s]"); ax_Fu.set_ylabel("Fu(t) = Nu/N")
     for i, N in enumerate(Ns):
         for j, r in enumerate(by_N[N]):
-            color = COLORS_SATURATED[i % len(COLORS_SATURATED)]
-            # Mayor espesor de línea y mejor visibilidad
-            ax_Fu.plot(r['times'], r['Fu'], color=color,
-                       lw=2.5, alpha=0.8 if j == 0 else 0.4, marker='.' if j == 0 else None,
-                       markersize=3, markevery=max(1, len(r['times'])//20),
+            ax_Fu.plot(r['times'], r['Fu'], color=COLORS[i % len(COLORS)],
+                       lw=1.2, alpha=0.5 if j > 0 else 1.0,
                        label=f"N={N}" if j == 0 else None)
-    
-    ax_Fu.legend(fontsize=9, labelcolor='black', facecolor='white', edgecolor='#444444',
-                loc='lower right', framealpha=0.95)
+    ax_Fu.legend(fontsize=8)
     ax_Fu.set_ylim(-0.05, 1.05)
-    ax_Fu.grid(True, alpha=0.25, linestyle=':', linewidth=0.8)
-    # Anotar tiempo donde se alcanza equilibrio (último 30%)
-    for i, N in enumerate(Ns):
-        r = by_N[N][0]
-        fu = r['Fu']
-        t_eq = r['times'][int(len(fu) * 0.7)]
-        ax_Fu.axvline(t_eq, color=COLORS_SATURATED[i % len(COLORS_SATURATED)],
-                     linestyle=':', alpha=0.3, linewidth=1)
 
     # ── 1.3b: Fest vs N ──
-    ax_Fest.set_title("1.3b  Fest (equilibrio) vs N", fontweight='bold')
-    ax_Fest.set_xlabel("N", fontsize=10); ax_Fest.set_ylabel("Fest", fontsize=10)
+    ax_Fest.set_title("1.3  Fest (valor estacionario) vs N")
+    ax_Fest.set_xlabel("N"); ax_Fest.set_ylabel("Fest")
+    ax_Fest.set_ylim(0, 0.5)
     Fest_vals = []
     for N in Ns:
-        fests = []
-        for r in by_N[N]:
-            fu = r['Fu']
-            # estacionario = promedio del último 30% del tiempo
-            n_tail = max(1, int(len(fu) * 0.3))
-            fests.append(np.mean(fu[-n_tail:]))
+        fests = [np.mean(r['Fu'][max(1, int(len(r['Fu']) * 0.7)):]) for r in by_N[N]]
         Fest_vals.append(np.mean(fests))
-    ax_Fest.plot(N_vals, Fest_vals, 'o-', color='#00c853', lw=2.5, markersize=8,
-                markeredgecolor='#00a040', markeredgewidth=1.5)
-    ax_Fest.grid(True, alpha=0.25, linestyle=':', linewidth=0.8)
-    ax_Fest.set_ylim(-0.05, 1.05)
-    # Anotar valores
-    for N, F in zip(N_vals, Fest_vals):
-        ax_Fest.annotate(f'{F:.3f}', xy=(N, F), xytext=(0, 8),
-                        textcoords='offset points', ha='center', fontsize=8,
-                        color='#00a040', fontweight='bold')
+    ax_Fest.plot(N_vals, Fest_vals, 'o-', color='#2a9d8f', lw=2)
 
-    # ── 1.3c: T_ss vs N (tiempo al estacionario) ──
-    ax_Tss.set_title("1.3c  T_estacionario vs N", fontweight='bold')
-    ax_Tss.set_xlabel("N", fontsize=10); ax_Tss.set_ylabel("T_ss  [s]", fontsize=10)
+    # ── 1.3c: T_ss vs N ──
+    ax_Tss.set_title("1.3  T_estacionario vs N")
+    ax_Tss.set_xlabel("N"); ax_Tss.set_ylabel("T_ss  [s]")
+    ax_Tss.set_ylim(bottom=0)
     Tss_vals = []
     for N in Ns:
         tsss = []
         for r in by_N[N]:
             fu   = r['Fu']
             t    = r['times']
-            fest = np.mean(fu[int(len(fu)*0.7):])
-            # primer momento donde Fu supera 90% de Fest
-            threshold = 0.9 * fest
-            idx = np.where(fu >= threshold)[0]
+            fest = np.mean(fu[int(len(fu) * 0.7):])
+            idx  = np.where(fu >= 0.9 * fest)[0]
             tsss.append(t[idx[0]] if len(idx) > 0 else t[-1])
         Tss_vals.append(np.mean(tsss))
-    ax_Tss.plot(N_vals, Tss_vals, 's-', color='#ffb300', lw=2.5, markersize=8,
-               markeredgecolor='#ff8f00', markeredgewidth=1.5)
-    ax_Tss.grid(True, alpha=0.25, linestyle=':', linewidth=0.8)
-    # Anotar valores
-    for N, T in zip(N_vals, Tss_vals):
-        ax_Tss.annotate(f'{T:.2f}s', xy=(N, T), xytext=(0, 8),
-                       textcoords='offset points', ha='center', fontsize=8,
-                       color='#ff8f00', fontweight='bold')
+    ax_Tss.plot(N_vals, Tss_vals, 's-', color='#e9c46a', lw=2)
 
-    # ── 1.4a: perfiles radiales (para el N más grande disponible) ──
+    # ── 1.4a: perfiles radiales ──
     N_big = Ns[-1]
-    ax_prof.set_title(f"1.4  Perfiles radiales  (N={N_big}, promedio sobre realizaciones)")
+    ax_prof.set_title(f"1.4  Perfiles radiales (N={N_big}, promedio sobre realizaciones)")
     ax_prof.set_xlabel("S  [m]"); ax_prof.set_ylabel("valor (normalizado)")
-    # Promediar sobre realizaciones
     all_rho, all_v, all_J = [], [], []
     S_ref = None
     for r in by_N[N_big]:
@@ -325,31 +316,43 @@ def plot_all(results, r_outer=40, r_inner=1, particle_radius=1, out_prefix="plot
     rho_mean = np.mean(all_rho, axis=0)
     v_mean   = np.mean(all_v,   axis=0)
     J_mean   = np.mean(all_J,   axis=0)
-    # Normalizar para mostrar en misma escala
+
     def safe_norm(arr):
         m = np.max(arr)
         return arr / m if m > 0 else arr
-    ax_prof.plot(S_ref, safe_norm(rho_mean), color='#58a6ff', lw=2, label=r"$\langle\rho_f^{in}\rangle$ (norm)")
-    ax_prof.plot(S_ref, safe_norm(v_mean),   color='#3fb950', lw=2, label=r"$|\langle v_f^{in}\rangle|$ (norm)")
-    ax_prof.plot(S_ref, safe_norm(J_mean),   color='#f0883e', lw=2.5, label=r"$J_{in}$ (norm)")
-    ax_prof.axvline(r_inner, color='#8b949e', ls=':', lw=1, label=f"r_inner={r_inner}")
-    ax_prof.legend(fontsize=9, labelcolor='#c9d1d9', facecolor='#161b22', edgecolor='#30363d')
+
+    ax_prof.plot(S_ref, safe_norm(rho_mean), color='#457b9d', lw=2,
+                 label=r"$\langle\rho_f^{in}\rangle$ (norm)")
+    ax_prof.plot(S_ref, safe_norm(v_mean),   color='#2a9d8f', lw=2,
+                 label=r"$|\langle v_f^{in}\rangle|$ (norm)")
+    ax_prof.plot(S_ref, safe_norm(J_mean),   color='#e63946', lw=2.5,
+                 label=r"$J_{in}$ (norm)")
+    ax_prof.axvline(r_inner + particle_radius, color='gray', ls=':', lw=1,
+                    label=f"S_min = {r_inner + particle_radius}")
+    ax_prof.legend(fontsize=9)
 
     # ── 1.4b: Jin @ S≈2 vs N ──
-    ax_Jin.set_title("1.4  Jin en S≈2 vs N")
-    ax_Jin.set_xlabel("N"); ax_Jin.set_ylabel("Jin(S≈2)")
-    Jin_at2 = []
+    ax_Jin.set_title("1.4  Jin, ρ, v  en S≈2  vs  N")
+    ax_Jin.set_xlabel("N")
+    Jin_at2, rho_at2, v_at2 = [], [], []
     for N in Ns:
-        vals = []
+        j_vals, r_vals, v_vals = [], [], []
         for r in by_N[N]:
-            # encontrar el shell más cercano a S=2
             idx = np.argmin(np.abs(r['S'] - 2.0))
-            vals.append(r['flux'][idx])
-        Jin_at2.append(np.mean(vals))
-    ax_Jin.plot(N_vals, Jin_at2, 'D-', color='#da3633', lw=2)
+            j_vals.append(r['flux'][idx])
+            r_vals.append(r['density'][idx])
+            v_vals.append(r['velocity'][idx])
+        Jin_at2.append(np.mean(j_vals))
+        rho_at2.append(np.mean(r_vals))
+        v_at2.append(np.mean(v_vals))
 
-    fig.suptitle("Sistema 1 — Análisis de Scanning Rate, Fu(t) y Perfiles Radiales",
-                 color='#e6edf3', fontsize=14, y=0.98)
+    ax_Jin.plot(N_vals, Jin_at2, 'D-',  color='#e63946', lw=2, label=r"$J_{in}$")
+    ax_Jin.plot(N_vals, rho_at2, 'o--', color='#457b9d', lw=1.5, label=r"$\langle\rho\rangle$")
+    ax_Jin.plot(N_vals, v_at2,   's--', color='#2a9d8f', lw=1.5, label=r"$|\langle v\rangle|$")
+    ax_Jin.legend(fontsize=8)
+
+    fig.suptitle("Sistema 1 — Scanning Rate, Fu(t) y Perfiles Radiales",
+                 fontsize=14, y=0.98)
 
     plt.savefig(out_prefix + ".png", dpi=150, bbox_inches='tight',
                 facecolor=fig.get_facecolor())
@@ -358,45 +361,55 @@ def plot_all(results, r_outer=40, r_inner=1, particle_radius=1, out_prefix="plot
 
 
 # ──────────────────────────────────────────────────────────────
-# 5. Entrypoint
+# 6. Entrypoint
 # ──────────────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description="Análisis puntos 1.2, 1.3, 1.4 — Sistema 1")
-    parser.add_argument("files",        nargs='+', help="Archivos output.txt a procesar")
-    parser.add_argument("--N",          type=int,   default=None,  help="Número de partículas (si es único)")
-    parser.add_argument("--Ns",         type=str,   default=None,  help="N por archivo, comma-separated. Ej: 50,100,100")
-    parser.add_argument("--r_outer",    type=float, default=40.0)
-    parser.add_argument("--r_inner",    type=float, default=1.0)
-    parser.add_argument("--radius",     type=float, default=1.0,   help="Radio de la partícula")
-    parser.add_argument("--dS",         type=float, default=0.2,   help="Ancho de capa para perfil radial")
-    parser.add_argument("--tol",        type=float, default=0.5,   help="Tolerancia para detección de colisiones")
-    parser.add_argument("--out",        type=str,   default="sistema1_analisis")
+    parser = argparse.ArgumentParser(description="Análisis puntos 1.1-1.4 — Sistema 1")
+    parser.add_argument("files",     nargs='*', help="Archivos output.txt")
+    parser.add_argument("--timing",  type=str,  default=None,
+                        help="Modo 1.1: ruta al archivo timing.txt")
+    parser.add_argument("--N",       type=int,   default=None)
+    parser.add_argument("--Ns",      type=str,   default=None,
+                        help="N por archivo, comma-separated. Ej: 50,100,100")
+    parser.add_argument("--r_outer", type=float, default=40.0)
+    parser.add_argument("--r_inner", type=float, default=1.0)
+    parser.add_argument("--radius",  type=float, default=1.0)
+    parser.add_argument("--dS",      type=float, default=0.2)
+    parser.add_argument("--tol",     type=float, default=0.5)
+    parser.add_argument("--out",     type=str,   default="sistema1_analisis")
     args = parser.parse_args()
 
-    # Determinar N para cada archivo
+    if args.timing:
+        plot_timing(args.timing, out_prefix=args.out)
+        return
+
+    if not args.files:
+        parser.print_help()
+        return
+
     if args.Ns:
         Ns_list = [int(x) for x in args.Ns.split(',')]
-        assert len(Ns_list) == len(args.files), "Debe haber un N por archivo"
+        assert len(Ns_list) == len(args.files)
     elif args.N:
         Ns_list = [args.N] * len(args.files)
     else:
-        # Intentar leer N del propio archivo (primer frame)
         Ns_list = []
         for f in args.files:
-            times, states = parse_output(f)
+            times, states, _ = parse_output(f)
             Ns_list.append(states.shape[1] if len(states) > 0 else 0)
 
     results = []
     for filepath, N in zip(args.files, Ns_list):
         print(f"Procesando {filepath}  (N={N}) ...")
-        times, states = parse_output(filepath)
+        times, states, particle_states_raw = parse_output(filepath)
         if len(times) == 0:
-            print(f"  ⚠ Archivo vacío o sin datos, saltando.")
+            print("  Archivo vacío, saltando.")
             continue
 
-        particle_state, cfc_series, _, _ = reconstruct_states(
-            times, states, args.r_outer, args.r_inner, args.radius, tol=args.tol)
+        particle_state, cfc_series = reconstruct_states(
+            times, states, particle_states_raw,
+            args.r_outer, args.r_inner, args.radius, tol=args.tol)
 
         Fu = compute_Fu(particle_state)
 
@@ -404,14 +417,14 @@ def main():
             times, states, particle_state, args.r_inner, args.r_outer, dS=args.dS)
 
         results.append({
-            'N':         N,
-            'times':     times,
+            'N':          N,
+            'times':      times,
             'cfc_series': cfc_series,
-            'Fu':        Fu,
-            'S':         S,
-            'density':   density,
-            'velocity':  velocity,
-            'flux':      flux,
+            'Fu':         Fu,
+            'S':          S,
+            'density':    density,
+            'velocity':   velocity,
+            'flux':       flux,
         })
         J, se = compute_J(times, cfc_series)
         print(f"  → J = {J:.4f} ± {se:.4f}   Fest ≈ {Fu[-10:].mean():.3f}")

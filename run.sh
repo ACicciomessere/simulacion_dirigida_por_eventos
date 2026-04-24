@@ -38,8 +38,8 @@
 # fi
 
 #!/bin/bash
-Ns=(300 400 500 600 700)
-RUNS=5
+Ns=(200 300 400 500 600)
+RUNS=3
 
 cd java
 javac *.java
@@ -56,9 +56,9 @@ echo "# N elapsed_ms" > "$TIMING_FILE"
 for N in "${Ns[@]}"; do
     echo "Timing N=$N ..."
     cd java
-    START_MS=$(date +%s%3N)
+    START_MS=$(python3 -c 'import time; print(int(time.time() * 1000))')
     java -Xmx2g Main $N timing        # modo timing: corre tf=5s sin escribir output
-    END_MS=$(date +%s%3N)
+    END_MS=$(python3 -c 'import time; print(int(time.time() * 1000))')
     cd ..
     ELAPSED=$(( END_MS - START_MS ))
     echo "$N $ELAPSED" >> "$TIMING_FILE"
