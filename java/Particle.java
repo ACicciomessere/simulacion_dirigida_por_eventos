@@ -124,13 +124,6 @@ public class Particle {
         collisionCount++;
     }
 
-    public void bounceOffCorner() {
-        // reflejar vx y vy según la normal del corner
-        vx = -vx;
-        vy = -vy;
-        collisionCount++;
-    }
-
     // cuánto tiempo falta para la colisión
     public double timeToHitCircle(double cx, double cy, double R, boolean isInnerWall) {
         double dx = this.x - cx;
@@ -162,25 +155,6 @@ public class Particle {
                 return t2;
             return Double.POSITIVE_INFINITY;
         }
-    }
-
-    public void bounceOffPoint(double px, double py, double EPS) {
-        double dx = this.x - px;
-        double dy = this.y - py;
-        double dist = Math.sqrt(dx * dx + dy * dy);
-
-        if (dist < EPS)
-            return; // ignorar rebotes demasiado cercanos
-
-        double nx = dx / dist;
-        double ny = dy / dist;
-
-        double vdotn = vx * nx + vy * ny;
-
-        vx -= 2 * vdotn * nx;
-        vy -= 2 * vdotn * ny;
-
-        collisionCount++;
     }
 
 }

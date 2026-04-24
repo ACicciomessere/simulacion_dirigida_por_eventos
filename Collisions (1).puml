@@ -1,0 +1,80 @@
+@startuml
+
+skinparam dpi 150
+skinparam pageMargin 10
+skinparam classAttributeIconSize 0
+skinparam classFontSize 11
+skinparam classHeaderBackgroundColor #4A90D9
+skinparam classBackgroundColor #F0F4FF
+skinparam classBorderColor #2C5F8A
+skinparam arrowColor #2C5F8A
+skinparam arrowThickness 1.5
+
+scale 0.65
+
+class Main {
+    - N: int
+    - RADIUS: double
+    - MASS: double
+    - INITIAL_SPEED: double
+    - MAX_TIME: double
+    - R_OUTER: double
+    - R_INNER: double
+    - CX: double
+    - CY: double
+    + {static} main(args: String[]): void
+}
+
+class Particle {
+    + x: double
+    + y: double
+    + vx: double
+    + vy: double
+    + radius: double
+    + mass: double
+    + collisionCount: int
+    + Particle(x, y, vx, vy, radius, mass)
+    + move(dt: double): void
+    + timeToHit(other: Particle): double
+    + timeToHitVerticalWall(xMin, xMax: double): double
+    + timeToHitHorizontalWall(yMin, yMax: double): double
+    + timeToHitCircle(cx, cy, R: double, isInner: boolean): double
+    + timeToHitPoint(px, py: double): double
+    + bounceOff(other: Particle): void
+    + bounceOffCircle(cx, cy: double): void
+}
+
+class Event {
+    + time: double
+    + a: Particle
+    + b: Particle
+    - countA: int
+    - countB: int
+    + Event(time: double, a: Particle, b: Particle)
+    + compareTo(that: Event): int
+    + isValid(): boolean
+}
+
+class Collisions {
+    - pq: PriorityQueue<Event>
+    - simTime: double
+    - particles: List<Particle>
+    - R_OUTER: double
+    - R_INNER: double
+    - CX: double
+    - CY: double
+    - {static} CLEANUP_THRESHOLD: int
+    - eventsSinceCleanup: int
+    + Collisions(particles, rOuter, rInner, cx, cy)
+    - predict(p: Particle): void
+    - cleanupQueue(): void
+    + simulate(maxTime: double, nEventsPerPrint: int): void
+}
+
+Main      ..>  Particle   : creates
+Main      ..>  Collisions : creates
+Collisions o--  Particle  : manages
+Collisions ..>  Event     : produces
+Event      -->  Particle  : references
+
+@enduml
