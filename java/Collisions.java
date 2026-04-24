@@ -85,6 +85,7 @@ public class Collisions {
         if (!folder.exists())
             folder.mkdirs();
 
+        
         try (
                 FileWriter outputWriter = new FileWriter(simPath + "/output.txt");) {
 
