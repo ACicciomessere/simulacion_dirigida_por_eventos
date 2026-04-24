@@ -1,6 +1,7 @@
 public class Particle {
     public double x, y, vx, vy, radius, mass;
     public int collisionCount;
+    public double lastMoveTime;
 
     public Particle(double x, double y, double vx, double vy, double radius, double mass) {
         this.x = x;
@@ -10,12 +11,27 @@ public class Particle {
         this.radius = radius;
         this.mass = mass;
         this.collisionCount = 0;
+        this.lastMoveTime = 0.0;
     }
 
     public void move(double dt) {
         this.x += this.vx * dt;
         this.y += this.vy * dt;
     }
+
+    // Move particle state up to absolute time t (lazy evaluation)
+    public void moveTo(double t) {
+        double dt = t - lastMoveTime;
+        if (dt > 0) {
+            x += vx * dt;
+            y += vy * dt;
+            lastMoveTime = t;
+        }
+    }
+
+    // Get position at time t without mutating state (for snapshot output)
+    public double getX(double t) { return x + vx * (t - lastMoveTime); }
+    public double getY(double t) { return y + vy * (t - lastMoveTime); }
 
     public double timeToHit(Particle other) {
         if (this == other)
