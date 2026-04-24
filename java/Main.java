@@ -6,11 +6,18 @@ import java.util.Random;
 public class Main {
     public static void main(String[] args) throws IOException {
         // --- Simulation Parameters ---
-        int N = 200; // Número de partículas
-        double RADIUS = 0.5; // Radio de la partícula
+        if (args.length == 0) {
+            System.err.println("Usage: java Main <N> [timing]");
+            System.exit(1);
+        }
+
+        int N = Integer.parseInt(args[0]); // Número de partículas
+        boolean timingMode = args.length > 1 && args[1].equals("timing");
+
+        double RADIUS = 1; // Radio de la partícula
         double MASS = 1.0; // Masa de la partícula
         double INITIAL_SPEED = 1; // Magnitud de la velocidad inicial
-        double MAX_TIME = 1000.0; // Tiempo máximo de simulación
+        double MAX_TIME = timingMode ? 500.0 : 1000.0; // Timing mode: 5s, else full simulation
 
         double R_OUTER = 40;
         double R_INNER = 1;
@@ -63,6 +70,6 @@ public class Main {
 
         // --- Ejecutar Simulación ---
         Collisions system = new Collisions(particles, R_OUTER, R_INNER, CX, CY);
-        system.simulate(MAX_TIME, 1);
+        system.simulate(MAX_TIME, timingMode ? 1000 : 1);
     }
 }

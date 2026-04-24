@@ -1,6 +1,7 @@
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.PriorityQueue;
@@ -16,6 +17,10 @@ public class Collisions {
     private final double CX;
     private final double CY;
 
+    // Parámetro para limpiar eventos inválidos
+    private static final int CLEANUP_THRESHOLD = 10000; // Limpiar cuando la cola exceda esto
+    private int eventsSinceCleanup = 0;
+
     public Collisions(List<Particle> particles, double rOuter, double rInner, double cx, double cy) {
         this.particles = particles;
         this.R_OUTER = rOuter;
@@ -25,6 +30,19 @@ public class Collisions {
 
         this.simTime = 0.0;
         this.pq = new PriorityQueue<>();
+    }
+
+    private void cleanupQueue() {
+        // Reconstruir la cola quitando eventos inválidos
+        List<Event> validEvents = new ArrayList<>();
+        while (!pq.isEmpty()) {
+            Event e = pq.poll();
+            if (e.isValid()) {
+                validEvents.add(e);
+            }
+        }
+        pq = new PriorityQueue<>(validEvents);
+        eventsSinceCleanup = 0;
     }
 
     private void predict(Particle p) {
@@ -81,6 +99,12 @@ public class Collisions {
                     continue;
                 if (event.time < simTime - 1e-12)
                     continue;
+
+                // Limpiar eventos inválidos periódicamente
+                eventsSinceCleanup++;
+                if (eventsSinceCleanup > CLEANUP_THRESHOLD && pq.size() > CLEANUP_THRESHOLD) {
+                    cleanupQueue();
+                }
 
                 // mover todas las partículas
                 for (Particle p : particles) {
