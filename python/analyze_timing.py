@@ -1,159 +1,162 @@
 """
-analyze_timing.py – Análisis del tiempo de ejecución vs N para 500ms
+analyze_timing.py  –  Punto 1.1: tiempo de ejecución vs N
 
-Lee el archivo runs/timing.txt generado por run.sh y genera un gráfico mostrando
-la escala de tiempo de ejecución con la cantidad de partículas N.
+Lee runs/timing.txt donde cada línea es  "N  elapsed_ms"
+(puede haber varias líneas por N, una por repetición del timing).
+
+Para cada N calcula:
+    - media del tiempo (ms y s)
+    - desvío estándar
+    - error estándar de la media (SEM)
+
+Grafica t_mean vs N en escala LINEAL con barras de error (±std).
 
 Uso:
-    python analyze_timing.py [--timing_file runs/timing.txt] [--out timing_plot]
+    python analyze_timing.py --timing_file runs/timing.txt --out timing_analysis
 """
 
-import sys
 import argparse
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy import stats
+from collections import defaultdict
 
 
-def parse_timing_file(filepath):
+# ──────────────────────────────────────────────────────────────
+# 1. Lectura del archivo
+# ──────────────────────────────────────────────────────────────
+
+def load_timing(filepath):
     """
-    Parsea archivo timing.txt con formato:
-        # N elapsed_ms
-        N1 time1
-        N2 time2
-        ...
-    
-    Devuelve:
-        Ns: array de valores N
-        times_ms: array de tiempos en ms
+    Devuelve un dict  {N: [t1_ms, t2_ms, ...]}
+    Ignora líneas que empiezan con '#' o están vacías.
     """
-    Ns, times_ms = [], []
+    data = defaultdict(list)
     with open(filepath) as f:
         for line in f:
             line = line.strip()
             if not line or line.startswith('#'):
                 continue
             parts = line.split()
-            if len(parts) >= 2:
-                try:
-                    N = int(parts[0])
-                    t = float(parts[1])
-                    Ns.append(N)
-                    times_ms.append(t)
-                except ValueError:
-                    continue
-    return np.array(Ns), np.array(times_ms)
+            if len(parts) < 2:
+                continue
+            N  = int(parts[0])
+            ms = float(parts[1])
+            data[N].append(ms)
+    return data
 
 
-def plot_timing(Ns, times_ms, out_prefix="timing_plot"):
+# ──────────────────────────────────────────────────────────────
+# 2. Plot
+# ──────────────────────────────────────────────────────────────
+
+def plot_timing(data, out_prefix="timing_analysis"):
     """
-    Grafica tiempo de ejecución vs N con regresión.
+    Grafica t_mean (s) vs N en escala lineal.
+    Barras de error = desvío estándar de las repeticiones.
+    Anota el número de repeticiones sobre cada punto.
     """
-    # Ajuste de potencia: t = a * N^b
-    log_N = np.log(Ns)
-    log_t = np.log(times_ms)
-    slope, intercept, r_value, p_value, std_err = stats.linregress(log_N, log_t)
-    
-    # Parámetros: t = a * N^b
-    b = slope
-    a = np.exp(intercept)
-    
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    Ns      = sorted(data.keys())
+    means   = []    # segundos
+    stds    = []    # segundos
+    sems    = []    # error estándar de la media
+    n_reps  = []
+
+    for N in Ns:
+        arr = np.array(data[N]) / 1000.0   # ms → s
+        means.append(arr.mean())
+        stds.append(arr.std(ddof=1) if len(arr) > 1 else 0.0)
+        sems.append(arr.std(ddof=1) / np.sqrt(len(arr)) if len(arr) > 1 else 0.0)
+        n_reps.append(len(arr))
+
+    means = np.array(means)
+    stds  = np.array(stds)
+    sems  = np.array(sems)
+
+    fig, ax = plt.subplots(figsize=(8, 5))
     fig.patch.set_facecolor('white')
-    
-    # ── Gráfico 1: escala lineal ──
-    ax1 = axes[0]
-    ax1.set_facecolor('white')
-    ax1.plot(Ns, times_ms, 'o-', color='#58a6ff', lw=2.5, markersize=10, 
-             label='Mediciones')
-    
-    # Curva de ajuste
-    N_smooth = np.linspace(Ns.min(), Ns.max(), 100)
-    t_smooth = a * (N_smooth ** b)
-    ax1.plot(N_smooth, t_smooth, '--', color='#f0883e', lw=2, 
-             label=f'Ajuste: t = {a:.3f}·N^{b:.2f}')
-    
-    ax1.set_xlabel('N (número de partículas)', fontsize=11, color='black')
-    ax1.set_ylabel('Tiempo [ms]', fontsize=11, color='black')
-    ax1.set_title('Tiempo de ejecución vs N (escala lineal)', fontsize=12, color='black')
-    ax1.grid(True, alpha=0.3)
-    ax1.legend(fontsize=10, loc='upper left')
-    ax1.tick_params(colors='black')
-    for spine in ax1.spines.values():
+    ax.set_facecolor('white')
+
+    # Puntos con barras de error = std (variabilidad real de las mediciones)
+    ax.errorbar(
+        Ns, means, yerr=stds,
+        fmt='o-',
+        color='#457b9d',
+        ecolor='#e63946',
+        elinewidth=1.8,
+        capsize=6,
+        capthick=1.8,
+        linewidth=2,
+        markersize=8,
+        markerfacecolor='white',
+        markeredgewidth=2,
+        label='Tiempo medio ± std'
+    )
+
+    # Anotar cada punto con su valor medio y nro de repeticiones
+    for N, t, s, nr in zip(Ns, means, stds, n_reps):
+        ax.annotate(
+            f"{t:.2f} s\n(n={nr})",
+            xy=(N, t),
+            xytext=(0, 14),
+            textcoords='offset points',
+            ha='center',
+            fontsize=8,
+            color='#1d3557'
+        )
+
+    ax.set_xlabel("N  (número de partículas)", fontsize=12)
+    ax.set_ylabel("Tiempo de ejecución  [s]",   fontsize=12)
+    ax.set_title("1.1  Tiempo de ejecución vs N  (escala lineal)", fontsize=13)
+
+    # Escala lineal explícita (no log)
+    ax.set_xscale('linear')
+    ax.set_yscale('linear')
+
+    # Ajustar límites para que las anotaciones no queden cortadas
+    ax.set_ylim(bottom=0, top=max(means) * 1.35)
+    ax.set_xlim(Ns[0] - 20, Ns[-1] + 20)
+
+    ax.grid(True, alpha=0.25, linestyle=':', linewidth=0.8)
+    ax.legend(fontsize=10, facecolor='white', edgecolor='#cccccc')
+
+    for spine in ax.spines.values():
         spine.set_edgecolor('black')
-    
-    # Anotaciones de puntos
-    for N, t in zip(Ns, times_ms):
-        ax1.annotate(f'{t:.0f}ms', xy=(N, t), xytext=(5, 5), 
-                    textcoords='offset points', fontsize=9, color='black')
-    
-    # ── Gráfico 2: escala log-log ──
-    ax2 = axes[1]
-    ax2.set_facecolor('white')
-    ax2.loglog(Ns, times_ms, 'o-', color='#58a6ff', lw=2.5, markersize=10, 
-               label='Mediciones')
-    ax2.loglog(N_smooth, t_smooth, '--', color='#f0883e', lw=2, 
-               label=f'Ajuste: log(t) = {intercept:.3f} + {b:.2f}·log(N)')
-    
-    ax2.set_xlabel('N (log scale)', fontsize=11, color='black')
-    ax2.set_ylabel('Tiempo [ms] (log scale)', fontsize=11, color='black')
-    ax2.set_title(f'Tiempo de ejecución vs N (escala log-log) — R²={r_value**2:.4f}', 
-                  fontsize=12, color='black')
-    ax2.grid(True, alpha=0.3, which='both')
-    ax2.legend(fontsize=10, loc='upper left')
-    ax2.tick_params(colors='black')
-    for spine in ax2.spines.values():
-        spine.set_edgecolor('black')
-    
-    fig.suptitle('Análisis de escalabilidad: tiempo de ejecución (primera parte, 500ms simulación)', 
-                 fontsize=13, color='black', y=0.98)
+    ax.tick_params(colors='black')
+
     plt.tight_layout()
-    
-    plt.savefig(out_prefix + ".png", dpi=150, bbox_inches='tight',
+    out_path = out_prefix + ".png"
+    plt.savefig(out_path, dpi=150, bbox_inches='tight',
                 facecolor=fig.get_facecolor())
-    print(f"Figura guardada: {out_prefix}.png")
-    
-    # Imprimir estadísticas
-    print("\n" + "="*60)
-    print("ANÁLISIS DE TIMING (500ms de simulación)")
-    print("="*60)
-    print(f"Puntos medidos: {len(Ns)}")
-    print(f"Rango N: [{Ns.min()}, {Ns.max()}]")
-    print(f"Rango tiempo: [{times_ms.min():.0f}, {times_ms.max():.0f}] ms")
-    print()
-    print(f"Ajuste potencial: t = {a:.6f} × N^{b:.4f}")
-    print(f"R² = {r_value**2:.6f}")
-    print(f"Error estándar: {std_err:.6f}")
-    print(f"p-value: {p_value:.2e}")
-    print()
-    print(f"Complejidad: O(N^{b:.2f})")
-    
-    # Predicciones
-    print("\nPredicciones para otros valores de N:")
-    for N_pred in [100, 400, 500, 600, 700, 1000]:
-        t_pred = a * (N_pred ** b)
-        print(f"  N={N_pred:4d} → {t_pred:8.1f} ms = {t_pred/1000:6.2f} s")
-    
+    print(f"Figura guardada: {out_path}")
+
+    # Imprimir tabla resumen en consola
+    print("\n── Resumen timing ──────────────────────────────")
+    print(f"{'N':>6}  {'n_reps':>6}  {'mean (s)':>10}  {'std (s)':>9}  {'SEM (s)':>9}")
+    for N, t, s, sem, nr in zip(Ns, means, stds, sems, n_reps):
+        print(f"{N:>6}  {nr:>6}  {t:>10.3f}  {s:>9.3f}  {sem:>9.4f}")
+
     plt.show()
 
 
+# ──────────────────────────────────────────────────────────────
+# 3. Entrypoint
+# ──────────────────────────────────────────────────────────────
+
 def main():
-    parser = argparse.ArgumentParser(description="Análisis de timing — tiempo de ejecución vs N")
-    parser.add_argument("--timing_file", type=str, default="runs/timing.txt",
-                       help="Archivo de timing a procesar")
-    parser.add_argument("--out", type=str, default="timing_plot",
-                       help="Prefijo para guardar figuras")
+    parser = argparse.ArgumentParser(
+        description="Análisis de timing: t vs N en escala lineal")
+    parser.add_argument("--timing_file", default="runs/timing.txt",
+                        help="Archivo con columnas N elapsed_ms")
+    parser.add_argument("--out", default="timing_analysis",
+                        help="Prefijo del archivo de salida")
     args = parser.parse_args()
-    
-    try:
-        Ns, times_ms = parse_timing_file(args.timing_file)
-        if len(Ns) == 0:
-            print(f"Error: No se encontraron datos en {args.timing_file}")
-            sys.exit(1)
-        plot_timing(Ns, times_ms, out_prefix=args.out)
-    except FileNotFoundError:
-        print(f"Error: Archivo {args.timing_file} no encontrado")
-        sys.exit(1)
+
+    data = load_timing(args.timing_file)
+    if not data:
+        print(f"No se encontraron datos en {args.timing_file}")
+        return
+
+    plot_timing(data, out_prefix=args.out)
 
 
 if __name__ == "__main__":

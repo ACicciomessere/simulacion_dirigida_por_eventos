@@ -37,8 +37,8 @@ from matplotlib.collections import PathCollection
 
 # ── Parámetros físicos del sistema (deben coincidir con la simulación) ──────
 R_OUTER   = 40.0   # radio recinto externo  (L=80 → r=40)
-R_INNER   = 0.5    # radio obstáculo central
-PARTICLE_R = 1.0   # radio de cada partícula
+R_INNER   = 1   # radio obstáculo central
+PARTICLE_R = 1   # radio de cada partícula
 CX, CY    = 0.0, 0.0
 
 # ── Colores ──────────────────────────────────────────────────────────────────
@@ -176,9 +176,9 @@ def build_animation(frames, all_states, interval_ms=50):
     ax.add_patch(inner_obs)
 
     # Título y etiquetas
-    title_text = ax.text(0, margin * 0.92, "Sistema 1 – Scanning Rate",
-                         ha="center", va="center", fontsize=14,
-                         color=TEXT_COLOR, fontweight="bold")
+    # title_text = ax.text(0, margin * 0.92, "Sistema 1 – Scanning Rate",
+    #                      ha="center", va="center", fontsize=14,
+    #                      color=TEXT_COLOR, fontweight="bold")
     time_text  = ax.text(-margin * 0.97, -margin * 0.97, "",
                          ha="left", va="bottom", fontsize=11,
                          color=TEXT_COLOR, family="monospace")
@@ -188,17 +188,17 @@ def build_animation(frames, all_states, interval_ms=50):
 
     # Leyenda manual
     from matplotlib.lines import Line2D
-    legend_elements = [
-        Line2D([0], [0], marker='o', color='w',
-               markerfacecolor=COLOR_FRESH, markersize=10, label="Fresca"),
-        Line2D([0], [0], marker='o', color='w',
-               markerfacecolor=COLOR_USED,  markersize=10, label="Usada"),
-        Line2D([0], [0], marker='o', color='w',
-               markerfacecolor=COLOR_OBS,   markersize=10, label="Obstáculo"),
-    ]
-    ax.legend(handles=legend_elements, loc="upper right",
-              facecolor="#2c2c4a", edgecolor="#555577",
-              labelcolor=TEXT_COLOR, fontsize=9)
+    # legend_elements = [
+    #     Line2D([0], [0], marker='o', color='w',
+    #            markerfacecolor=COLOR_FRESH, markersize=10, label="Fresca"),
+    #     Line2D([0], [0], marker='o', color='w',
+    #            markerfacecolor=COLOR_USED,  markersize=10, label="Usada"),
+    #     Line2D([0], [0], marker='o', color='w',
+    #            markerfacecolor=COLOR_OBS,   markersize=10, label="Obstáculo"),
+    # ]
+    # ax.legend(handles=legend_elements, loc="upper right",
+    #           facecolor="#2c2c4a", edgecolor="#555577",
+    #           labelcolor=TEXT_COLOR, fontsize=9)
 
     # ── Partículas (scatter) ─────────────────────────────────────────────────
     # tamaño visual: convertir radio físico → puntos^2
@@ -286,8 +286,8 @@ def main():
         "--interval", type=int, default=25,
         help="Intervalo entre frames en ms (default: 25)")
     parser.add_argument(
-        "--fps", type=int, default=120,
-        help="FPS para el video guardado (default: 60)")
+        "--fps", type=int, default=10,
+        help="FPS para el video guardado (default: 200)")
     parser.add_argument(
         "--skip", type=int, default=2,
         help="Mostrar 1 de cada N frames (default: 2)")

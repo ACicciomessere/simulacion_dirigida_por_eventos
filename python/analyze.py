@@ -312,11 +312,10 @@ def plot_all(results, r_outer=40, r_inner=1, particle_radius=1, out_prefix="plot
                        textcoords='offset points', ha='center', fontsize=8,
                        color='#ff8f00', fontweight='bold')
 
-    # ── 1.4a: perfiles radiales (para el N más grande disponible) ──
+# ── 1.4a: perfiles radiales ──
     N_big = Ns[-1]
-    ax_prof.set_title(f"1.4  Perfiles radiales  (N={N_big}, promedio sobre realizaciones)")
+    ax_prof.set_title(f"1.4  Perfiles radiales (N={N_big}, promedio sobre realizaciones)")
     ax_prof.set_xlabel("S  [m]"); ax_prof.set_ylabel("valor (normalizado)")
-    # Promediar sobre realizaciones
     all_rho, all_v, all_J = [], [], []
     S_ref = None
     for r in by_N[N_big]:
@@ -325,36 +324,92 @@ def plot_all(results, r_outer=40, r_inner=1, particle_radius=1, out_prefix="plot
     rho_mean = np.mean(all_rho, axis=0)
     v_mean   = np.mean(all_v,   axis=0)
     J_mean   = np.mean(all_J,   axis=0)
-    # Normalizar para mostrar en misma escala
+
     def safe_norm(arr):
         m = np.max(arr)
         return arr / m if m > 0 else arr
-    ax_prof.plot(S_ref, safe_norm(rho_mean), color='#58a6ff', lw=2, label=r"$\langle\rho_f^{in}\rangle$ (norm)")
-    ax_prof.plot(S_ref, safe_norm(v_mean),   color='#3fb950', lw=2, label=r"$|\langle v_f^{in}\rangle|$ (norm)")
-    ax_prof.plot(S_ref, safe_norm(J_mean),   color='#f0883e', lw=2.5, label=r"$J_{in}$ (norm)")
-    ax_prof.axvline(r_inner, color='#8b949e', ls=':', lw=1, label=f"r_inner={r_inner}")
-    ax_prof.legend(fontsize=9, labelcolor='#c9d1d9', facecolor='#161b22', edgecolor='#30363d')
+
+    ax_prof.plot(S_ref, safe_norm(rho_mean), color='#457b9d', lw=2,
+                 label=r"$\langle\rho_f^{in}\rangle$ (norm)")
+    ax_prof.plot(S_ref, safe_norm(v_mean),   color='#2a9d8f', lw=2,
+                 label=r"$|\langle v_f^{in}\rangle|$ (norm)")
+    ax_prof.plot(S_ref, safe_norm(J_mean),   color='#e63946', lw=2.5,
+                 label=r"$J_{in}$ (norm)")
+    ax_prof.axvline(r_inner + particle_radius, color='gray', ls=':', lw=1,
+                    label=f"S_min = {r_inner + particle_radius}")
+    ax_prof.legend(fontsize=9)
 
     # ── 1.4b: Jin @ S≈2 vs N ──
-    ax_Jin.set_title("1.4  Jin en S≈2 vs N")
-    ax_Jin.set_xlabel("N"); ax_Jin.set_ylabel("Jin(S≈2)")
-    Jin_at2 = []
+    ax_Jin.set_title("1.4  Jin, ρ, v  en S≈2  vs  N")
+    ax_Jin.set_xlabel("N")
+    Jin_at2, rho_at2, v_at2 = [], [], []
     for N in Ns:
-        vals = []
+        j_vals, r_vals, v_vals = [], [], []
         for r in by_N[N]:
-            # encontrar el shell más cercano a S=2
             idx = np.argmin(np.abs(r['S'] - 2.0))
-            vals.append(r['flux'][idx])
-        Jin_at2.append(np.mean(vals))
-    ax_Jin.plot(N_vals, Jin_at2, 'D-', color='#da3633', lw=2)
+            j_vals.append(r['flux'][idx])
+            r_vals.append(r['density'][idx])
+            v_vals.append(r['velocity'][idx])
+        Jin_at2.append(np.mean(j_vals))
+        rho_at2.append(np.mean(r_vals))
+        v_at2.append(np.mean(v_vals))
 
-    fig.suptitle("Sistema 1 — Análisis de Scanning Rate, Fu(t) y Perfiles Radiales",
-                 color='#e6edf3', fontsize=14, y=0.98)
+    ax_Jin.plot(N_vals, Jin_at2, 'D-',  color='#e63946', lw=2, label=r"$J_{in}$")
+    ax_Jin.plot(N_vals, rho_at2, 'o--', color='#457b9d', lw=1.5, label=r"$\langle\rho\rangle$")
+    ax_Jin.plot(N_vals, v_at2,   's--', color='#2a9d8f', lw=1.5, label=r"$|\langle v\rangle|$")
+    ax_Jin.legend(fontsize=8)
+
+    fig.suptitle("Sistema 1 — Scanning Rate, Fu(t) y Perfiles Radiales",
+                 fontsize=14, y=0.98)
 
     plt.savefig(out_prefix + ".png", dpi=150, bbox_inches='tight',
                 facecolor=fig.get_facecolor())
     print(f"Figura guardada: {out_prefix}.png")
     plt.show()
+    
+    # ── 1.4a: perfiles radiales (para el N más grande disponible) ──
+    # N_big = Ns[-1]
+    # ax_prof.set_title(f"1.4  Perfiles radiales  (N={N_big}, promedio sobre realizaciones)")
+    # ax_prof.set_xlabel("S  [m]"); ax_prof.set_ylabel("valor (normalizado)")
+    # # Promediar sobre realizaciones
+    # all_rho, all_v, all_J = [], [], []
+    # S_ref = None
+    # for r in by_N[N_big]:
+    #     all_rho.append(r['density']); all_v.append(r['velocity']); all_J.append(r['flux'])
+    #     S_ref = r['S']
+    # rho_mean = np.mean(all_rho, axis=0)
+    # v_mean   = np.mean(all_v,   axis=0)
+    # J_mean   = np.mean(all_J,   axis=0)
+    # # Normalizar para mostrar en misma escala
+    # def safe_norm(arr):
+    #     m = np.max(arr)
+    #     return arr / m if m > 0 else arr
+    # ax_prof.plot(S_ref, safe_norm(rho_mean), color='#58a6ff', lw=2, label=r"$\langle\rho_f^{in}\rangle$ (norm)")
+    # ax_prof.plot(S_ref, safe_norm(v_mean),   color='#3fb950', lw=2, label=r"$|\langle v_f^{in}\rangle|$ (norm)")
+    # ax_prof.plot(S_ref, safe_norm(J_mean),   color='#f0883e', lw=2.5, label=r"$J_{in}$ (norm)")
+    # ax_prof.axvline(r_inner, color='#8b949e', ls=':', lw=1, label=f"r_inner={r_inner}")
+    # ax_prof.legend(fontsize=9, labelcolor='#c9d1d9', facecolor='#161b22', edgecolor='#30363d')
+
+    # # ── 1.4b: Jin @ S≈2 vs N ──
+    # ax_Jin.set_title("1.4  Jin en S≈2 vs N")
+    # ax_Jin.set_xlabel("N"); ax_Jin.set_ylabel("Jin(S≈2)")
+    # Jin_at2 = []
+    # for N in Ns:
+    #     vals = []
+    #     for r in by_N[N]:
+    #         # encontrar el shell más cercano a S=2
+    #         idx = np.argmin(np.abs(r['S'] - 2.0))
+    #         vals.append(r['flux'][idx])
+    #     Jin_at2.append(np.mean(vals))
+    # ax_Jin.plot(N_vals, Jin_at2, 'D-', color='#da3633', lw=2)
+
+    # fig.suptitle("Sistema 1 — Análisis de Scanning Rate, Fu(t) y Perfiles Radiales",
+    #              color='#e6edf3', fontsize=14, y=0.98)
+
+    # plt.savefig(out_prefix + ".png", dpi=150, bbox_inches='tight',
+    #             facecolor=fig.get_facecolor())
+    # print(f"Figura guardada: {out_prefix}.png")
+    # plt.show()
 
 
 # ──────────────────────────────────────────────────────────────
