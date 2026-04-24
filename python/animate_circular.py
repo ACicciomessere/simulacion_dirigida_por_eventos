@@ -37,17 +37,17 @@ from matplotlib.collections import PathCollection
 
 # ── Parámetros físicos del sistema (deben coincidir con la simulación) ──────
 R_OUTER   = 40.0   # radio recinto externo  (L=80 → r=40)
-R_INNER   = 1.0    # radio obstáculo central
+R_INNER   = 0.5    # radio obstáculo central
 PARTICLE_R = 1.0   # radio de cada partícula
 CX, CY    = 0.0, 0.0
 
 # ── Colores ──────────────────────────────────────────────────────────────────
 COLOR_FRESH  = "#2ecc71"   # verde
 COLOR_USED   = "#9b59b6"   # violeta
-COLOR_EDGE   = "#27ae60"   # borde recinto
+COLOR_EDGE   = "#2ecc71"    # borde recinto
 COLOR_OBS    = "#c0392b"   # obstáculo central
-BG_COLOR     = "#1a1a2e"   # fondo oscuro
-TEXT_COLOR   = "#ecf0f1"
+BG_COLOR     = "#fcfcff"   # fondo oscuro
+TEXT_COLOR   = "#1a1a2e"
 
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -176,8 +176,8 @@ def build_animation(frames, all_states, interval_ms=50):
 
     # Obstáculo central (fijo)
     inner_obs = plt.Circle((CX, CY), R_INNER,
-                            fill=True, facecolor=COLOR_OBS,
-                            edgecolor="#e74c3c", linewidth=1.5, zorder=5)
+                            fill=True, facecolor=COLOR_USED,
+                            edgecolor="#954bb5" , linewidth=1.5, zorder=5)
     ax.add_patch(inner_obs)
 
     # Título y etiquetas
@@ -288,14 +288,14 @@ def main():
         "--save", metavar="FILE",
         help="Guardar animación en archivo (.mp4 o .gif)")
     parser.add_argument(
-        "--interval", type=int, default=50,
-        help="Intervalo entre frames en ms (default: 50)")
+        "--interval", type=int, default=25,
+        help="Intervalo entre frames en ms (default: 25)")
     parser.add_argument(
-        "--fps", type=int, default=20,
-        help="FPS para el video guardado (default: 20)")
+        "--fps", type=int, default=120,
+        help="FPS para el video guardado (default: 60)")
     parser.add_argument(
-        "--skip", type=int, default=1,
-        help="Mostrar 1 de cada N frames (default: 1 = todos)")
+        "--skip", type=int, default=2,
+        help="Mostrar 1 de cada N frames (default: 2)")
     args = parser.parse_args()
 
     # ── Cargar datos ────────────────────────────────────────────────────────

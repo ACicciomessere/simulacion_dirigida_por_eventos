@@ -7,7 +7,7 @@ public class Main {
     public static void main(String[] args) throws IOException {
         // --- Simulation Parameters ---
         int N = 200; // Número de partículas
-        double RADIUS = 1; // Radio de la partícula
+        double RADIUS = 0.5; // Radio de la partícula
         double MASS = 1.0; // Masa de la partícula
         double INITIAL_SPEED = 1; // Magnitud de la velocidad inicial
         double MAX_TIME = 1000.0; // Tiempo máximo de simulación

@@ -42,6 +42,16 @@ public class Collisions {
         if (tInner > 1e-12) {
             pq.add(new Event(simTime + tInner, p, p)); // usamos (a==b) como flag
         }
+
+        // 🔹 otras partículas
+        for (Particle q : particles) {
+            if (p != q) {
+                double t = p.timeToHit(q);
+                if (t > 1e-12) {
+                    pq.add(new Event(simTime + t, p, q));
+                }
+            }
+        }
     }
 
     public void simulate(double maxTime, int nEventsPerPrint) throws IOException {
