@@ -108,19 +108,19 @@ def classify_particles(frames):
     """
     Determina el estado (fresca/usada) de cada partícula en cada frame.
 
-    Reglas según la consigna:
-      - Inicialmente TODAS son frescas.
-      - Si colisionó con el obstáculo central → usada.
-      - Si (ya usada) colisionó con la pared externa → fresca de nuevo.
+    Reglas simplificadas:
+      - Inicialmente TODAS son frescas (verde).
+      - Si colisionó con el obstáculo central → cambia a usada (violeta).
+      - Una vez usada, permanece usada (nunca vuelve a cambiar).
 
-    Heurística: detectamos cambio de velocidad entre frames consecutivos
-    y, según la distancia al centro o al borde, inferimos el tipo de colisión.
+    Heurística: detectamos cambio de velocidad entre frames consecutivos.
+    Si cambia velocidad Y está muy cerca del centro, es colisión con obstáculo.
     """
     if not frames:
         return []
 
     n_particles = len(frames[0]["x"])
-    # estado[i] = True → usada, False → fresca
+    # estado[i] = True → usada (violeta), False → fresca (verde)
     state = np.zeros(n_particles, dtype=bool)
     all_states = []
 
@@ -137,18 +137,13 @@ def classify_particles(frames):
         speed_changed = (np.abs(vx - pvx) > 1e-9) | (np.abs(vy - pvy) > 1e-9)
 
         dist_center = np.sqrt(x**2 + y**2)
-        dist_outer  = np.sqrt(x**2 + y**2)   # distancia al centro del recinto = centro del sistema
 
-        # colisión con obstáculo interno: la partícula está cerca del centro
+        # colisión con obstáculo central: velocidad cambió Y está muy cerca del centro
         hit_inner = speed_changed & (dist_center < (R_INNER + PARTICLE_R + 2.0))
-        # colisión con pared externa: la partícula está cerca del borde
-        hit_outer = speed_changed & (dist_outer > (R_OUTER - PARTICLE_R - 2.0))
 
-        # aplicar transiciones de estado
-        # usada → si chocó con centro (y era fresca)
+        # aplicar cambio de estado: fresca → usada si choca con obstáculo
+        # Una vez usada, se queda usada (nunca vuelve a cambiar)
         state[hit_inner & ~state] = True
-        # fresca → si chocó con pared externa (y era usada)
-        state[hit_outer & state]  = False
 
         all_states.append(state.copy())
         prev = frame
