@@ -89,7 +89,7 @@ public class Collisions {
                 FileWriter outputWriter = new FileWriter(simPath + "/output.txt");) {
 
             outputWriter.write("# t\n");
-            outputWriter.write("# x y vx vy\n");
+            outputWriter.write("# x y vx vy fresh\n");
 
             int countEvents = 0;
 
@@ -119,8 +119,8 @@ public class Collisions {
                     for (Particle p : particles) {
                         outputWriter.write(String.format(
                                 Locale.US,
-                                "%.6f %.6f %.6f %.6f\n",
-                                p.x, p.y, p.vx, p.vy));
+                                "%.6f %.6f %.6f %.6f %d\n",
+                                p.x, p.y, p.vx, p.vy, p.fresh ? 1 : 0));
                     }
                 }
 
@@ -135,7 +135,7 @@ public class Collisions {
 
                     if (a == b) {
                         // círculo interno
-                        a.bounceOffCircle(CX, CY);
+                        a.bounceOffCircle(CX, CY, true);
                     } else {
                         // partícula-partícula
                         a.bounceOff(b);
@@ -143,7 +143,7 @@ public class Collisions {
 
                 } else if (a != null) {
                     // pared externa
-                    a.bounceOffCircle(CX, CY);
+                    a.bounceOffCircle(CX, CY, false);
                 }
 
                 // recalcular eventos

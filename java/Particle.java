@@ -1,6 +1,7 @@
 public class Particle {
     public double x, y, vx, vy, radius, mass;
     public int collisionCount;
+    public boolean fresh = true;
 
     public Particle(double x, double y, double vx, double vy, double radius, double mass) {
         this.x = x;
@@ -108,7 +109,7 @@ public class Particle {
         other.collisionCount++;
     }
 
-    public void bounceOffCircle(double cx, double cy) {
+    public void bounceOffCircle(double cx, double cy, boolean isInnerWall) {
         double dx = this.x - cx;
         double dy = this.y - cy;
         double dist = Math.sqrt(dx * dx + dy * dy);
@@ -120,6 +121,12 @@ public class Particle {
 
         vx -= 2 * vdotn * nx;
         vy -= 2 * vdotn * ny;
+
+        if (isInnerWall) {
+            this.fresh = false;
+        } else {
+            this.fresh = true;
+        }
 
         collisionCount++;
     }

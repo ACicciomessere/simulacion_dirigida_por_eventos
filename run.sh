@@ -38,54 +38,54 @@
 # # fi
 
 # #!/bin/bash
-# Ns=(200 300 400 500 600)          # Reducido de 5 a 3 valores de N
-# RUNS=3                    # Reducido de 5 a 2 runs por N
+Ns=(200 300 400 500 600 700)          # Reducido de 5 a 3 valores de N
+RUNS=7                    # Reducido de 5 a 2 runs por N
 
-# cd java
-# javac *.java
-# cd ..
+cd java
+javac *.java
+cd ..
 
-# ALL_FILES=()
-# ALL_NS=()
+ALL_FILES=()
+ALL_NS=()
 
 # # ── 1.1: timing ──────────────────────────────────────────────
 # TIMING_FILE="runs/timing.txt"
 # mkdir -p runs
 # echo "# N elapsed_ms" > "$TIMING_FILE"
 
-# for N in "${Ns[@]}"; do
-#     echo "Timing N=$N ..."
-#     cd java
-#     START_MS=$(date +%s%3N)
-#     java -Xmx2g Main $N timing        # modo timing: corre tf=5s sin escribir output
-#     END_MS=$(date +%s%3N)
-#     cd ..
-#     ELAPSED=$(( END_MS - START_MS ))
-#     echo "$N $ELAPSED" >> "$TIMING_FILE"
-#     echo "  → ${ELAPSED} ms"
-# done
+for N in "${Ns[@]}"; do
+    echo "Timing N=$N ..."
+    cd java
+    START_MS=$(date +%s%3N)
+    java -Xmx2g Main $N timing        # modo timing: corre tf=5s sin escribir output
+    END_MS=$(date +%s%3N)
+    cd ..
+    ELAPSED=$(( END_MS - START_MS ))
+    echo "$N $ELAPSED" >> "$TIMING_FILE"
+    echo "  → ${ELAPSED} ms"
+done
 
 # # ── 1.2/1.3/1.4: múltiples realizaciones ────────────────────
-# for N in "${Ns[@]}"; do
-#     for (( i=1; i<=RUNS; i++ )); do
-#         DIR="runs/N${N}/run_${i}"
-#         mkdir -p "$DIR"
-#         echo "N=$N run=$i"
-#         cd java
-#         java -Xmx2g Main $N
-#         cd ..
-#         cp outputs/sim_circular/output.txt "$DIR/output.txt"
-#         ALL_FILES+=("$DIR/output.txt")
-#         ALL_NS+=("$N")
-#     done
-# done
+for N in "${Ns[@]}"; do
+    for (( i=1; i<=RUNS; i++ )); do
+        DIR="runs/N${N}/run_${i}"
+        mkdir -p "$DIR"
+        echo "N=$N run=$i"
+        cd java
+        java -Xmx2g Main $N
+        cd ..
+        cp outputs/sim_circular/output.txt "$DIR/output.txt"
+        ALL_FILES+=("$DIR/output.txt")
+        ALL_NS+=("$N")
+    done
+done
 
-# NS_STRING=$(IFS=, ; echo "${ALL_NS[*]}")
+NS_STRING=$(IFS=, ; echo "${ALL_NS[*]}")
 
-# python3 python/analyze.py \
-#     "${ALL_FILES[@]}" \
-#     --Ns "$NS_STRING" \
-#     --out analisis_total
+python3 python/analyze.py \
+    "${ALL_FILES[@]}" \
+    --Ns "$NS_STRING" \
+    --out analisis_total
 
 # # ── Análisis de timing (escala en función de N) ────────────────
 # echo ""
@@ -95,31 +95,31 @@
 #!/bin/bash
 
 # ── Configuración ─────────────────────────────────────────────
-Ns=(200 300 400 500 600)
-RUNS=3
+# Ns=(200 300 400 500 600)
+# RUNS=3
 
-ALL_FILES=()
-ALL_NS=()
+# ALL_FILES=()
+# ALL_NS=()
 
-# ── Recolectar archivos ya existentes ────────────────────────
-for N in "${Ns[@]}"; do
-    for (( i=1; i<=RUNS; i++ )); do
-        DIR="runs/N${N}/run_${i}"
+# # ── Recolectar archivos ya existentes ────────────────────────
+# for N in "${Ns[@]}"; do
+#     for (( i=1; i<=RUNS; i++ )); do
+#         DIR="runs/N${N}/run_${i}"
 
-        ALL_FILES+=("$DIR/output.txt")
-        ALL_NS+=("$N")
-    done
-done
+#         ALL_FILES+=("$DIR/output.txt")
+#         ALL_NS+=("$N")
+#     done
+# done
 
-NS_STRING=$(IFS=, ; echo "${ALL_NS[*]}")
+# NS_STRING=$(IFS=, ; echo "${ALL_NS[*]}")
 
-# ── Ejecutar análisis ────────────────────────────────────────
-python3 python/analyze.py \
-    "${ALL_FILES[@]}" \
-    --Ns "$NS_STRING" \
-    --out analisis_total
+# # ── Ejecutar análisis ────────────────────────────────────────
+# python3 python/analyze.py \
+#     "${ALL_FILES[@]}" \
+#     --Ns "$NS_STRING" \
+#     --out analisis_total
 
-# ── Timing analysis (opcional) ───────────────────────────────
-python3 python/analyze_timing.py \
-    --timing_file runs/timing.txt \
-    --out timing_analysis
+# # ── Timing analysis (opcional) ───────────────────────────────
+# python3 python/analyze_timing.py \
+#     --timing_file runs/timing.txt \
+#     --out timing_analysis
