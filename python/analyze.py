@@ -32,7 +32,7 @@ def parse_output(filepath):
     """
     Devuelve:
         times  : array (T,)            tiempos de los snapshots
-        states : array (T, N, 4)       x, y, vx, vy  para cada snapshot
+        states : array (T, N, 5)       x, y, vx, vy  para cada snapshot
     """
     times, frames = [], []
     with open(filepath) as f:
@@ -49,7 +49,7 @@ def parse_output(filepath):
         frame = []
         while i < len(lines):
             parts = lines[i].split()
-            if len(parts) == 4:
+            if len(parts) in (4, 5):
                 frame.append([float(v) for v in parts])
                 i += 1
             else:
@@ -59,7 +59,7 @@ def parse_output(filepath):
             frames.append(frame)
 
     times  = np.array(times)
-    states = np.array(frames)   # (T, N, 4)
+    states = np.array(frames)   # (T, N, 5)
     return times, states
 
 
@@ -67,54 +67,74 @@ def parse_output(filepath):
 # 2. Reconstruir estados fresca/usada y detectar colisiones
 # ──────────────────────────────────────────────────────────────
 
-def reconstruct_states(times, states, r_outer, r_inner, particle_radius, tol=0.5):
+# def reconstruct_states(times, states, r_outer, r_inner, particle_radius, tol=0.5):
+#     """
+#     Para cada snapshot, infiere si cada partícula es 'fresca' (0) o 'usada' (1).
+
+#     Reglas (igual que la simulación):
+#       - Arranca todo el mundo fresca.
+#       - Si en cualquier snapshot una partícula está muy cerca del obstáculo interno
+#         (dist_to_center ≈ r_inner + particle_radius), marcamos ese evento como
+#         colisión con el centro → la partícula pasa a 'usada'.
+#       - Si una partícula usada llega muy cerca de la pared externa
+#         (dist_to_center ≈ r_outer - particle_radius), vuelve a ser 'fresca'.
+
+#     Devuelve:
+#         particle_state  : array (T, N)   0 = fresca, 1 = usada  en cada instante
+#         cfc_series      : array (T,)     conteo acumulado de transiciones fresh→used
+#         hit_center_mask : array (T, N)   True si en ese snapshot hubo colisión con centro
+#         hit_outer_mask  : array (T, N)   True si en ese snapshot hubo colisión con pared
+#     """
+#     T, N, _ = states.shape
+#     x  = states[:, :, 0]   # (T, N)
+#     y  = states[:, :, 1]
+#     vx = states[:, :, 2]
+#     vy = states[:, :, 3]
+
+#     dist = np.sqrt(x**2 + y**2)   # distancia al centro en cada snapshot
+
+#     # Detectar snapshots donde la partícula está "en contacto" con cada pared
+#     contact_inner = np.abs(dist - (r_inner + particle_radius)) < tol
+#     contact_outer = np.abs(dist - (r_outer - particle_radius)) < tol
+
+#     # Reconstruir estado snapshot a snapshot
+#     particle_state = np.zeros((T, N), dtype=int)  # 0=fresca, 1=usada
+#     current_state  = np.zeros(N, dtype=int)        # estado actual de cada partícula
+#     cfc = 0
+#     cfc_series = np.zeros(T)
+
+#     for t in range(T):
+#         for j in range(N):
+#             if contact_inner[t, j] and current_state[j] == 0:
+#                 current_state[j] = 1   # fresca → usada
+#                 cfc += 1
+#             elif contact_outer[t, j] and current_state[j] == 1:
+#                 current_state[j] = 0   # usada → fresca
+#         particle_state[t] = current_state.copy()
+#         cfc_series[t] = cfc
+
+#     return particle_state, cfc_series, contact_inner, contact_outer
+
+
+def reconstruct_states(times, states, *args, **kwargs):
     """
-    Para cada snapshot, infiere si cada partícula es 'fresca' (0) o 'usada' (1).
-
-    Reglas (igual que la simulación):
-      - Arranca todo el mundo fresca.
-      - Si en cualquier snapshot una partícula está muy cerca del obstáculo interno
-        (dist_to_center ≈ r_inner + particle_radius), marcamos ese evento como
-        colisión con el centro → la partícula pasa a 'usada'.
-      - Si una partícula usada llega muy cerca de la pared externa
-        (dist_to_center ≈ r_outer - particle_radius), vuelve a ser 'fresca'.
-
-    Devuelve:
-        particle_state  : array (T, N)   0 = fresca, 1 = usada  en cada instante
-        cfc_series      : array (T,)     conteo acumulado de transiciones fresh→used
-        hit_center_mask : array (T, N)   True si en ese snapshot hubo colisión con centro
-        hit_outer_mask  : array (T, N)   True si en ese snapshot hubo colisión con pared
+    El estado viene directo del output (columna 4): 1=fresca, 0=usada.
+    Devuelve la misma firma que antes para no romper nada.
     """
     T, N, _ = states.shape
-    x  = states[:, :, 0]   # (T, N)
-    y  = states[:, :, 1]
-    vx = states[:, :, 2]
-    vy = states[:, :, 3]
+    # columna 4: 1=fresca → invertimos para que 0=fresca, 1=usada (igual que antes)
+    particle_state = (1 - states[:, :, 4]).astype(int)
 
-    dist = np.sqrt(x**2 + y**2)   # distancia al centro en cada snapshot
-
-    # Detectar snapshots donde la partícula está "en contacto" con cada pared
-    contact_inner = np.abs(dist - (r_inner + particle_radius)) < tol
-    contact_outer = np.abs(dist - (r_outer - particle_radius)) < tol
-
-    # Reconstruir estado snapshot a snapshot
-    particle_state = np.zeros((T, N), dtype=int)  # 0=fresca, 1=usada
-    current_state  = np.zeros(N, dtype=int)        # estado actual de cada partícula
-    cfc = 0
+    # Cfc: conteo acumulado de transiciones fresca→usada
+    # Una partícula pasó a usada cuando en t es usada y en t-1 era fresca
     cfc_series = np.zeros(T)
-
-    for t in range(T):
-        for j in range(N):
-            if contact_inner[t, j] and current_state[j] == 0:
-                current_state[j] = 1   # fresca → usada
-                cfc += 1
-            elif contact_outer[t, j] and current_state[j] == 1:
-                current_state[j] = 0   # usada → fresca
-        particle_state[t] = current_state.copy()
+    cfc = 0
+    for t in range(1, T):
+        newly_used = (particle_state[t] == 1) & (particle_state[t-1] == 0)
+        cfc += np.sum(newly_used)
         cfc_series[t] = cfc
-
-    return particle_state, cfc_series, contact_inner, contact_outer
-
+    
+    return particle_state, cfc_series, None, None
 
 # ──────────────────────────────────────────────────────────────
 # 3. Observables
@@ -164,7 +184,7 @@ def compute_radial_profiles(times, states, particle_state, r_inner, r_outer,
                 continue
             area = np.pi * (shell_edges[k+1]**2 - shell_edges[k]**2)
             sum_density[k]  += n_in / area
-            sum_velocity[k] += np.mean(np.abs(radial_vel[in_shell]))
+            sum_velocity[k] += np.abs(np.mean((radial_vel[in_shell])))
             count_snaps[k]  += 1
 
     valid = count_snaps > 0
@@ -193,19 +213,22 @@ def plot_all(results, r_outer=40, r_inner=1, particle_radius=1, out_prefix="plot
     # ── Agrupar por N ──
     by_N = {N: [r for r in results if r['N'] == N] for N in Ns}
 
-    fig = plt.figure(figsize=(18, 14))
+    fig = plt.figure(figsize=(20, 20))
     fig.patch.set_facecolor('white')
-    gs = gridspec.GridSpec(3, 3, figure=fig, hspace=0.45, wspace=0.38)
+    gs = gridspec.GridSpec(3, 3, figure=fig, hspace=0.85, wspace=0.7)
 
     ax_cfc  = fig.add_subplot(gs[0, 0])   # 1.2a: Cfc(t)
     ax_J    = fig.add_subplot(gs[0, 1])   # 1.2b: <J>(N)
     ax_Fu   = fig.add_subplot(gs[1, 0])   # 1.3a: Fu(t)
     ax_Fest = fig.add_subplot(gs[1, 1])   # 1.3b: Fest vs N
     ax_Tss  = fig.add_subplot(gs[1, 2])   # 1.3c: T_ss vs N
-    ax_prof = fig.add_subplot(gs[2, :2])  # 1.4a: perfiles radiales (N fijo)
-    ax_Jin  = fig.add_subplot(gs[2, 2])   # 1.4b: Jin @ S≈2 vs N
+    prof_grid = gs[2, 0].subgridspec(3, 1, hspace=0.6)
+    ax_rho   = fig.add_subplot(prof_grid[0, 0])  # 1.4a: rho(S)
+    ax_vel   = fig.add_subplot(prof_grid[1, 0])  # 1.4a: |v|(S)
+    ax_prof  = fig.add_subplot(prof_grid[2, 0])  # 1.4a: Jin(S)
+    ax_Jin   = fig.add_subplot(gs[2, 1:])       # 1.4b: Jin @ S≈2 vs N (zoom)
 
-    for ax in [ax_cfc, ax_J, ax_Fu, ax_Fest, ax_Tss, ax_prof, ax_Jin]:
+    for ax in [ax_cfc, ax_J, ax_Fu, ax_Fest, ax_Tss, ax_rho, ax_vel, ax_prof, ax_Jin]:
         ax.set_facecolor('white')
         ax.tick_params(colors='black')
         ax.xaxis.label.set_color('black')
@@ -226,7 +249,8 @@ def plot_all(results, r_outer=40, r_inner=1, particle_radius=1, out_prefix="plot
         t_line = np.linspace(r0['times'][0], r0['times'][-1], 100)
         ax_cfc.plot(t_line, J * t_line, color=COLORS[i % len(COLORS)],
                     ls='--', lw=1, alpha=0.6)
-    ax_cfc.legend(fontsize=8, labelcolor='black', facecolor='white', edgecolor='black')
+    ax_cfc.legend(fontsize=8, labelcolor='black', facecolor='white', edgecolor='black',
+                  bbox_to_anchor=(1.05, 1), loc='upper left')
 
     # ── 1.2b: <J>(N) con barra de error ──
     ax_J.set_title("1.2  Scanning rate  ⟨J⟩  vs  N")
@@ -255,16 +279,10 @@ def plot_all(results, r_outer=40, r_inner=1, particle_radius=1, out_prefix="plot
                        label=f"N={N}" if j == 0 else None)
     
     ax_Fu.legend(fontsize=9, labelcolor='black', facecolor='white', edgecolor='#444444',
-                loc='lower right', framealpha=0.95)
-    ax_Fu.set_ylim(-0.05, 1.05)
+                bbox_to_anchor=(1.05, 1), loc='upper left', framealpha=0.95)
+    ax_Fu.set_ylim(-0.05, 0.25)
+
     ax_Fu.grid(True, alpha=0.25, linestyle=':', linewidth=0.8)
-    # Anotar tiempo donde se alcanza equilibrio (último 30%)
-    for i, N in enumerate(Ns):
-        r = by_N[N][0]
-        fu = r['Fu']
-        t_eq = r['times'][int(len(fu) * 0.7)]
-        ax_Fu.axvline(t_eq, color=COLORS_SATURATED[i % len(COLORS_SATURATED)],
-                     linestyle=':', alpha=0.3, linewidth=1)
 
     # ── 1.3b: Fest vs N ──
     ax_Fest.set_title("1.3b  Fest (equilibrio) vs N", fontweight='bold')
@@ -274,8 +292,8 @@ def plot_all(results, r_outer=40, r_inner=1, particle_radius=1, out_prefix="plot
         fests = []
         for r in by_N[N]:
             fu = r['Fu']
-            # estacionario = promedio del último 30% del tiempo
-            n_tail = max(1, int(len(fu) * 0.3))
+            # estacionario = promedio del último 20% del tiempo
+            n_tail = max(1, int(len(fu) * 0.2))
             fests.append(np.mean(fu[-n_tail:]))
         Fest_vals.append(np.mean(fests))
     ax_Fest.plot(N_vals, Fest_vals, 'o-', color='#00c853', lw=2.5, markersize=8,
@@ -312,44 +330,56 @@ def plot_all(results, r_outer=40, r_inner=1, particle_radius=1, out_prefix="plot
                        textcoords='offset points', ha='center', fontsize=8,
                        color='#ff8f00', fontweight='bold')
 
-# ── 1.4a: perfiles radiales (todos los N) ──
-    ax_prof.set_title("1.4  Perfiles radiales  J_in  (norm.) — todos los N")
-    ax_prof.set_xlabel("S  [m]"); ax_prof.set_ylabel(r"$J_{in}$ (normalizado)")
+    
+    
+    # ── 1.4a: perfiles radiales crudos (todos los N) ──
+    ax_rho.set_title("1.4a  Perfil de densidad  <rho_in>(S)")
+    ax_rho.set_ylabel(r"$\langle \rho_{in} \rangle$")
 
-    def safe_norm(arr):
-        m = np.max(arr)
-        return arr / m if m > 0 else arr
+    ax_vel.set_title("1.4a  Perfil de velocidad  <|v_in|>(S)")
+    ax_vel.set_ylabel(r"$\langle |v_{in}| \rangle$")
+    
+    ax_prof.set_title("1.4a  Perfil radial de flujo  J_in(S)")
+    ax_prof.set_xlabel("S  [m]"); ax_prof.set_ylabel(r"$J_{in}(S)$")
 
     for i, N in enumerate(Ns):
         c = COLORS[i % len(COLORS)]
+        all_rho = [r['density'] for r in by_N[N]]
+        all_vel = [r['velocity'] for r in by_N[N]]
         all_J = [r['flux'] for r in by_N[N]]
         S_ref = by_N[N][0]['S']
+        rho_mean = np.mean(all_rho, axis=0)
+        vel_mean = np.mean(all_vel, axis=0)
         J_mean = np.mean(all_J, axis=0)
-        ax_prof.plot(S_ref, safe_norm(J_mean), color=c, lw=2, label=f"N={N}")
+        ax_rho.plot(S_ref, rho_mean, color=c, lw=2, label=f"N={N}")
+        ax_vel.plot(S_ref, vel_mean, color=c, lw=2, label=f"N={N}")
+        ax_prof.plot(S_ref, J_mean, color=c, lw=2, label=f"N={N}")
 
-    ax_prof.axvline(r_inner + particle_radius, color='gray', ls=':', lw=1,
+    for ax in [ax_rho, ax_vel, ax_prof]:
+        ax.axvline(r_inner + particle_radius, color='gray', ls=':', lw=1,
                     label=f"S_min = {r_inner + particle_radius}")
-    ax_prof.legend(fontsize=9)
+        ax.legend(fontsize=8, bbox_to_anchor=(1.05, 1), loc='upper left')
+        ax.grid(True, alpha=0.2, linestyle=':', linewidth=0.8)
 
     # ── 1.4b: Jin @ S≈2 vs N ──
-    ax_Jin.set_title("1.4  Jin, ρ, v  en S≈2  vs  N")
-    ax_Jin.set_xlabel("N")
-    Jin_at2, rho_at2, v_at2 = [], [], []
-    for N in Ns:
-        j_vals, r_vals, v_vals = [], [], []
-        for r in by_N[N]:
-            idx = np.argmin(np.abs(r['S'] - 2.0))
-            j_vals.append(r['flux'][idx])
-            r_vals.append(r['density'][idx])
-            v_vals.append(r['velocity'][idx])
-        Jin_at2.append(np.mean(j_vals))
-        rho_at2.append(np.mean(r_vals))
-        v_at2.append(np.mean(v_vals))
+    # ax_Jin.set_title("1.4  Jin, ρ, v  en S≈2  vs  N")
+    # ax_Jin.set_xlabel("N")
+    # Jin_at2, rho_at2, v_at2 = [], [], []
+    # for N in Ns:
+    #     j_vals, r_vals, v_vals = [], [], []
+    #     for r in by_N[N]:
+    #         idx = np.argmin(np.abs(r['S'] - 2.0))
+    #         j_vals.append(r['flux'][idx])
+    #         r_vals.append(r['density'][idx])
+    #         v_vals.append(r['velocity'][idx])
+    #     Jin_at2.append(np.mean(j_vals))
+    #     rho_at2.append(np.mean(r_vals))
+    #     v_at2.append(np.mean(v_vals))
 
-    ax_Jin.plot(N_vals, Jin_at2, 'D-',  color='#e63946', lw=2, label=r"$J_{in}$")
-    ax_Jin.plot(N_vals, rho_at2, 'o--', color='#457b9d', lw=1.5, label=r"$\langle\rho\rangle$")
-    ax_Jin.plot(N_vals, v_at2,   's--', color='#2a9d8f', lw=1.5, label=r"$|\langle v\rangle|$")
-    ax_Jin.legend(fontsize=8)
+    # ax_Jin.plot(N_vals, Jin_at2, 'D-',  color='#e63946', lw=2, label=r"$J_{in}$")
+    # ax_Jin.plot(N_vals, rho_at2, 'o--', color='#457b9d', lw=1.5, label=r"$\langle\rho\rangle$")
+    # ax_Jin.plot(N_vals, v_at2,   's--', color='#2a9d8f', lw=1.5, label=r"$|\langle v\rangle|$")
+    # ax_Jin.legend(fontsize=8, bbox_to_anchor=(1.05, 1), loc='upper left')
 
     fig.suptitle("Sistema 1 — Scanning Rate, Fu(t) y Perfiles Radiales",
                  fontsize=14, y=0.98)
