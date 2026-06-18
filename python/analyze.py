@@ -116,24 +116,44 @@ def parse_output(filepath):
 #     return particle_state, cfc_series, contact_inner, contact_outer
 
 
-def reconstruct_states(times, states, *args, **kwargs):
+def reconstruct_states(times, states, r_outer=40.0, r_inner=1.0, particle_radius=1.0, tol=0.5):
     """
-    El estado viene directo del output (columna 4): 1=fresca, 0=usada.
-    Devuelve la misma firma que antes para no romper nada.
+    Si el output trae la columna 'fresh' (5ª columna), la usamos directamente
+    (1=fresca, 0=usada, según Java). Si no, reconstruimos por proximidad a las
+    paredes — esto soporta corridas viejas sin la columna 'fresh'.
+    Devuelve (particle_state, cfc_series, None, None) para mantener la firma.
     """
-    T, N, _ = states.shape
-    # columna 4: 1=fresca → invertimos para que 0=fresca, 1=usada (igual que antes)
-    particle_state = (1 - states[:, :, 4]).astype(int)
+    T, N, ncols = states.shape
 
-    # Cfc: conteo acumulado de transiciones fresca→usada
-    # Una partícula pasó a usada cuando en t es usada y en t-1 era fresca
+    if ncols >= 5:
+        # Columna 4 es el flag 'fresh' que escribe la simulación (1=fresca → 0=usada).
+        particle_state = (1 - states[:, :, 4]).astype(int)
+    else:
+        # Output legado de 4 columnas: inferir estado por proximidad a las paredes.
+        x  = states[:, :, 0]
+        y  = states[:, :, 1]
+        dist = np.sqrt(x**2 + y**2)
+        contact_inner = np.abs(dist - (r_inner + particle_radius)) < tol
+        contact_outer = np.abs(dist - (r_outer - particle_radius)) < tol
+
+        particle_state = np.zeros((T, N), dtype=int)
+        current = np.zeros(N, dtype=int)
+        for t in range(T):
+            for j in range(N):
+                if contact_inner[t, j] and current[j] == 0:
+                    current[j] = 1
+                elif contact_outer[t, j] and current[j] == 1:
+                    current[j] = 0
+            particle_state[t] = current
+
+    # Cfc: transiciones fresca→usada acumuladas en el tiempo.
     cfc_series = np.zeros(T)
     cfc = 0
     for t in range(1, T):
         newly_used = (particle_state[t] == 1) & (particle_state[t-1] == 0)
-        cfc += np.sum(newly_used)
+        cfc += int(np.sum(newly_used))
         cfc_series[t] = cfc
-    
+
     return particle_state, cfc_series, None, None
 
 # ──────────────────────────────────────────────────────────────
@@ -153,18 +173,21 @@ def compute_radial_profiles(times, states, particle_state, r_inner, r_outer,
                              dS=0.2):
     """
     Para cada snapshot: selecciona partículas frescas con velocidad radial
-    apuntando al centro (Rj·vj < 0), las agrupa por capa S, calcula
-    densidad media y velocidad radial media.
-
-    Devuelve arrays indexados por shell:
-        S_centers, avg_density, avg_velocity, flux
+    apuntando al centro (Rj·vj < 0), las agrupa por capa S y acumula conteos.
+    Devuelve, para cada capa:
+        <rho_fin>(S) = (total_count_en_capa) / (n_frames * area_capa)
+        <|v_fin|>(S) = (suma de |v_radial|) / (total_count_en_capa)
+        Jin(S)       = <rho_fin>(S) * <|v_fin|>(S)
+    Misma definición que TP4: el promedio temporal incluye los snapshots
+    vacíos (no se excluyen), de modo que la densidad refleja la fracción
+    real del tiempo que la capa está ocupada.
     """
     num_shells = int(np.ceil((r_outer - r_inner) / dS))
     shell_edges = r_inner + np.arange(num_shells + 1) * dS
+    areas       = np.pi * (shell_edges[1:]**2 - shell_edges[:-1]**2)
 
-    sum_density  = np.zeros(num_shells)
-    sum_velocity = np.zeros(num_shells)
-    count_snaps  = np.zeros(num_shells, dtype=int)  # snapshots con datos en esa capa
+    counts   = np.zeros(num_shells)         # total partículas-fresh-in en cada capa, sumado en t
+    vrad_sum = np.zeros(num_shells)         # suma de |v_radial| sobre todas esas partículas
 
     x  = states[:, :, 0]
     y  = states[:, :, 1]
@@ -172,24 +195,22 @@ def compute_radial_profiles(times, states, particle_state, r_inner, r_outer,
     vy = states[:, :, 3]
     dist = np.sqrt(x**2 + y**2)
 
-    for t in range(len(times)):
-        fresh_mask = (particle_state[t] == 0)
-        radial_vel = (x[t] * vx[t] + y[t] * vy[t]) / (dist[t] + 1e-15)
+    n_frames = len(times)
+    for t in range(n_frames):
+        fresh_mask    = (particle_state[t] == 0)
+        radial_vel    = (x[t] * vx[t] + y[t] * vy[t]) / (dist[t] + 1e-15)
         toward_center = (radial_vel < 0) & fresh_mask
+        d_in          = dist[t][toward_center]
+        v_in          = np.abs(radial_vel[toward_center])
 
         for k in range(num_shells):
-            in_shell = toward_center & (dist[t] >= shell_edges[k]) & (dist[t] < shell_edges[k+1])
-            n_in = np.sum(in_shell)
-            if n_in == 0:
-                continue
-            area = np.pi * (shell_edges[k+1]**2 - shell_edges[k]**2)
-            sum_density[k]  += n_in / area
-            sum_velocity[k] += np.abs(np.mean((radial_vel[in_shell])))
-            count_snaps[k]  += 1
+            in_shell = (d_in >= shell_edges[k]) & (d_in < shell_edges[k+1])
+            counts  [k] += in_shell.sum()
+            vrad_sum[k] += v_in[in_shell].sum()
 
-    valid = count_snaps > 0
-    avg_density  = np.where(valid, sum_density  / np.where(count_snaps>0, count_snaps, 1), 0.0)
-    avg_velocity = np.where(valid, sum_velocity / np.where(count_snaps>0, count_snaps, 1), 0.0)
+    avg_density  = counts / max(n_frames, 1) / areas
+    with np.errstate(invalid="ignore", divide="ignore"):
+        avg_velocity = np.where(counts > 0, vrad_sum / np.maximum(counts, 1), 0.0)
     flux = avg_density * avg_velocity
 
     S_centers = r_inner + (np.arange(num_shells) + 0.5) * dS
@@ -201,6 +222,59 @@ def compute_radial_profiles(times, states, particle_state, r_inner, r_outer,
 # ──────────────────────────────────────────────────────────────
 
 COLORS = ['#e63946', '#457b9d', '#2a9d8f', '#e9c46a', '#f4a261']
+
+
+def plot_1_4_separate(results, r_inner=1.0, particle_radius=1.0, out_prefix="plot"):
+    """
+    Genera UN PNG por panel del item 1.4 (perfiles radiales): rho, |v|, Jin.
+    Promedia las realizaciones por N y usa el mismo estilo/colores que plot_all
+    (leyenda en el gráfico, paleta COLORS, línea vertical en S_min).
+
+    Archivos generados:
+        {out_prefix}_1_4_rho.png
+        {out_prefix}_1_4_v.png
+        {out_prefix}_1_4_jin.png
+    """
+    Ns = sorted(set(r['N'] for r in results))
+    if not Ns:
+        return
+    by_N = {N: [r for r in results if r['N'] == N] for N in Ns}
+
+    panels = [
+        ("rho", r"Densidad $\langle\rho_{in}\rangle$(S)",  r"$\rho$ (m$^{-2}$)",            'density'),
+        ("v",   r"Velocidad radial $\langle v_{in}\rangle$(S)", "|v| (m/s)",                'velocity'),
+        ("jin", r"Flujo $J_{in}$(S)",                      r"$J_{in}$ (m$^{-2}$ s$^{-1}$)", 'flux'),
+    ]
+
+    cmap   = plt.cm.plasma
+    colors = [cmap(i / max(len(Ns) - 1, 1)) for i in range(len(Ns))]
+
+    for tag, title, ylabel, key in panels:
+        fig, ax = plt.subplots(figsize=(8, 5))
+
+        for color, N in zip(colors, Ns):
+            S_ref  = by_N[N][0]['S']
+            stack  = np.array([r[key] for r in by_N[N]])
+            y_mean = stack.mean(axis=0)
+            ax.plot(S_ref, y_mean, color=color, lw=1.2)
+
+        ax.set_title(title)
+        ax.set_xlabel("S (m)")
+        ax.set_ylabel(ylabel)
+        ax.grid(True, alpha=0.3)
+
+        # Colorbar gradual en lugar de leyenda (requerimiento de la consigna).
+        sm = plt.cm.ScalarMappable(cmap=cmap,
+                                   norm=plt.Normalize(vmin=min(Ns), vmax=max(Ns)))
+        sm.set_array([])
+        fig.colorbar(sm, ax=ax, label="N")
+
+        out = f"{out_prefix}_1_4_{tag}.png"
+        fig.tight_layout()
+        fig.savefig(out, dpi=150, bbox_inches='tight')
+        plt.close(fig)
+        print(f"Figura guardada: {out}")
+
 
 def plot_all(results, r_outer=40, r_inner=1, particle_radius=1, out_prefix="plot"):
     """
@@ -454,6 +528,10 @@ def main():
 
     plot_all(results, r_outer=args.r_outer, r_inner=args.r_inner,
              particle_radius=args.radius, out_prefix=args.out)
+
+    # Item 1.4: un PNG por panel (rho, |v|, Jin) para presentación/comparación con TP4.
+    plot_1_4_separate(results, r_inner=args.r_inner,
+                       particle_radius=args.radius, out_prefix=args.out)
 
 
 if __name__ == "__main__":

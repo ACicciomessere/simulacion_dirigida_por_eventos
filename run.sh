@@ -38,8 +38,8 @@
 # # fi
 
 # #!/bin/bash
-Ns=(200 300 400 500 600 700)          # Reducido de 5 a 3 valores de N
-RUNS=7                    # Reducido de 5 a 2 runs por N
+Ns=(200 300 400 500 600 700 800)          # Reducido de 5 a 3 valores de N
+RUNS=5                    # Reducido de 5 a 2 runs por N
 
 cd java
 javac *.java

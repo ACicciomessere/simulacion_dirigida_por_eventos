@@ -14,6 +14,14 @@ public class Main {
         int N = Integer.parseInt(args[0]); // Número de partículas
         boolean timingMode = args.length > 1 && args[1].equals("timing");
 
+        // Semilla explícita: garantiza realizaciones independientes incluso si
+        // varias JVMs arrancan en el mismo tick. Uso: java Main <N> [timing] [seed]
+        Long seedArg = null;
+        for (int i = 1; i < args.length; i++) {
+            if (args[i].equals("timing")) continue;
+            try { seedArg = Long.parseLong(args[i]); break; } catch (NumberFormatException ignored) {}
+        }
+
         double RADIUS = 1; // Radio de la partícula
         double MASS = 1.0; // Masa de la partícula
         double INITIAL_SPEED = 1; // Magnitud de la velocidad inicial
@@ -27,7 +35,10 @@ public class Main {
         // INFO: 1. se definen las posiciones y velocidades iniciales, los radios y
         // tamaño de la caja
         List<Particle> particles = new ArrayList<>();
-        Random rand = new Random();
+        Random rand = (seedArg != null) ? new Random(seedArg) : new Random();
+        if (seedArg != null) {
+            System.out.println("Using seed=" + seedArg);
+        }
 
         for (int i = 0; i < N; i++) {
             double x, y;
