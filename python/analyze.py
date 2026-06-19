@@ -206,20 +206,33 @@ def fit_relaxation(times, Fu, tail_frac=0.2):
         return float(Fest0), tau
 
 
-def project_Fest(times, Fu, horizon=2.0):
+def steady_state_Fest(times, Fu):
     """
-    Fest proyectado: fracción usada que el ajuste de relajación predice a
-    `horizon`·T_final, es decir  Fest · (1 − exp(−horizon·T / τ)).
+    Fest (fracción usada en equilibrio) = promedio temporal de Fu(t) en el
+    régimen estacionario.
 
-    Las corridas se truncan antes del estacionario para N grandes (τ ~ T_run),
-    así que la cola subestima Fest y produce una caída espuria; la asíntota a
-    t→∞ del ajuste, en cambio, sobreestima (Fest y τ se compensan cuando el run
-    sólo cubre la subida). Proyectar a 2·T es el punto medio robusto que
-    reproduce la meseta esperada (rise-then-plateau) de las gráficas correctas.
+    Fu(t) sube desde 0 y satura en una meseta. El valor de equilibrio es,
+    por definición, el promedio de Fu sobre esa meseta. Para aislarla:
+      1. Se estima el tiempo de relajación τ con el ajuste de relajación.
+      2. Se descarta el transitorio (~3·τ, donde Fu ya alcanzó el 95% de la
+         meseta) y se promedia Fu sobre el resto de la corrida.
+      3. Se conserva siempre al menos la última mitad del run (min con T/2),
+         de modo que aunque τ sea grande el promedio use suficientes muestras.
+
+    Este estimador es directo y de baja varianza: a diferencia de extrapolar
+    el ajuste exponencial a t→∞ (donde Fest y τ están fuertemente
+    correlacionados y el resultado es muy ruidoso), aquí se promedia el dato
+    crudo ya estacionario, que es lo que pide la consigna.
     """
-    Fest, tau = fit_relaxation(times, Fu)
-    T = float(np.asarray(times, dtype=float)[-1])
-    return float(Fest * (1.0 - np.exp(-horizon * T / tau))) if tau > 0 else float(Fest)
+    times = np.asarray(times, dtype=float)
+    Fu    = np.asarray(Fu,    dtype=float)
+    if len(Fu) == 0:
+        return 0.0
+    _, tau = fit_relaxation(times, Fu)
+    T = times[-1]
+    t0 = min(3.0 * tau, 0.5 * T)          # inicio del régimen estacionario
+    mask = times >= t0
+    return float(np.mean(Fu[mask])) if mask.any() else float(Fu[-1])
 
 
 def compute_Tss(times, Fu, frac=0.9):
@@ -425,9 +438,10 @@ def plot_all(results, r_outer=40, r_inner=1, particle_radius=1, out_prefix="plot
     ax_Fest.set_xlabel("N", fontsize=10); ax_Fest.set_ylabel(r"$F_{est}$", fontsize=10)
     Fest_vals, Fest_errs = [], []
     for N in Ns:
-        # Fest proyectado a 2·T: corrige el truncado de los N grandes y
-        # reproduce la meseta (rise-then-plateau) de las gráficas de referencia.
-        fests = [project_Fest(r['times'], r['Fu']) for r in by_N[N]]
+        # Fest = promedio de Fu(t) en el régimen estacionario (tras descartar
+        # el transitorio). Estimador directo y de baja varianza, a diferencia
+        # de extrapolar el ajuste exponencial que aplanaba N=500/600/700.
+        fests = [steady_state_Fest(r['times'], r['Fu']) for r in by_N[N]]
         Fest_vals.append(np.mean(fests))
         Fest_errs.append(np.std(fests))
     ax_Fest.errorbar(N_vals, Fest_vals, yerr=Fest_errs, fmt='o-',
