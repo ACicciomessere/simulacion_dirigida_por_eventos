@@ -1,3 +1,5 @@
 java/*.class
 particles_frames.txt
 /runs
+/runs_long
+.DS_Store

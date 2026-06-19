@@ -25,7 +25,7 @@ public class Main {
         double RADIUS = 1; // Radio de la partícula
         double MASS = 1.0; // Masa de la partícula
         double INITIAL_SPEED = 1; // Magnitud de la velocidad inicial
-        double MAX_TIME = timingMode ? 500.0 : 1000.0; // Timing mode: 5s, else full simulation
+        double MAX_TIME = timingMode ? 500.0 : 1200.0; // Timing mode: 5s, else full simulation
 
         double R_OUTER = 40;
         double R_INNER = 1;

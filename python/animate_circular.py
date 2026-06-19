@@ -8,21 +8,24 @@ y produce una animación con matplotlib.
 
 Formato esperado del archivo de salida (outputs/sim_circular/output.txt):
     # t
-    # x y vx vy
+    # x y vx vy fresh
     <tiempo>
-    x1 y1 vx1 vy1
-    x2 y2 vx2 vy2
+    x1 y1 vx1 vy1 fresh1
+    x2 y2 vx2 vy2 fresh2
     ...
+
+donde la quinta columna `fresh` es 1 (fresca) o 0 (usada).
 
 Uso:
     python animate_circular.py                         # usa ruta por defecto
     python animate_circular.py ruta/al/output.txt     # ruta personalizada
+    python animate_circular.py --N 400 --run 42       # selecciona runs/N400/run_42/output.txt
     python animate_circular.py --save video.mp4       # guarda video
     python animate_circular.py --save anim.gif        # guarda GIF
 
 Lógica de colores (estados de partículas):
-    - FRESCA  (verde)  : estado inicial; también tras rebotar en pared externa
-    - USADA   (violeta): tras colisionar con el obstáculo central
+    - FRESCA  (verde)  : quinta columna == 1
+    - USADA   (violeta): quinta columna == 0
 """
 
 import sys
@@ -56,11 +59,25 @@ def parse_output(filepath: str):
     Lee el archivo output.txt y devuelve una lista de frames.
     Cada frame es un dict:
         { 'time': float, 'x': np.array, 'y': np.array,
-          'vx': np.array, 'vy': np.array }
+          'vx': np.array, 'vy': np.array, 'fresh': np.array }
+
+    La quinta columna `fresh` (1 = fresca, 0 = usada) se lee directamente
+    del archivo. Si no está presente, se asume 1 (todas frescas).
     """
     frames = []
     current_time = None
-    xs, ys, vxs, vys = [], [], [], []
+    xs, ys, vxs, vys, fresh = [], [], [], [], []
+
+    def flush():
+        if current_time is not None and xs:
+            frames.append({
+                "time": current_time,
+                "x":  np.array(xs,    dtype=float),
+                "y":  np.array(ys,    dtype=float),
+                "vx": np.array(vxs,   dtype=float),
+                "vy": np.array(vys,   dtype=float),
+                "fresh": np.array(fresh, dtype=int),
+            })
 
     with open(filepath, "r") as f:
         for raw_line in f:
@@ -73,82 +90,39 @@ def parse_output(filepath: str):
             # ¿Es una línea de tiempo? (sólo 1 valor)
             if len(parts) == 1:
                 # guardar frame anterior si existe
-                if current_time is not None and xs:
-                    frames.append({
-                        "time": current_time,
-                        "x":  np.array(xs,  dtype=float),
-                        "y":  np.array(ys,  dtype=float),
-                        "vx": np.array(vxs, dtype=float),
-                        "vy": np.array(vys, dtype=float),
-                    })
+                flush()
                 current_time = float(parts[0])
-                xs, ys, vxs, vys = [], [], [], []
+                xs, ys, vxs, vys, fresh = [], [], [], [], []
 
-            # ¿Es una línea de partícula? (4 valores: x y vx vy)
-            elif len(parts) == 4:
+            # ¿Es una línea de partícula? (4 o 5 valores: x y vx vy [fresh])
+            elif len(parts) >= 4:
                 xs.append(float(parts[0]))
                 ys.append(float(parts[1]))
                 vxs.append(float(parts[2]))
                 vys.append(float(parts[3]))
+                # quinta columna: estado fresca(1)/usada(0); por defecto fresca
+                fresh.append(int(float(parts[4])) if len(parts) >= 5 else 1)
 
     # último frame
-    if current_time is not None and xs:
-        frames.append({
-            "time": current_time,
-            "x":  np.array(xs,  dtype=float),
-            "y":  np.array(ys,  dtype=float),
-            "vx": np.array(vxs, dtype=float),
-            "vy": np.array(vys, dtype=float),
-        })
+    flush()
 
     return frames
 
 
 def classify_particles(frames):
     """
-    Determina el estado (fresca/usada) de cada partícula en cada frame.
+    Determina el estado (fresca/usada) de cada partícula en cada frame
+    a partir de la quinta columna `fresh` del archivo de salida.
 
-    Reglas simplificadas:
-      - Inicialmente TODAS son frescas (verde).
-      - Si colisionó con el obstáculo central → cambia a usada (violeta).
-      - Una vez usada, permanece usada (nunca vuelve a cambiar).
+    Convención del archivo:
+      - fresh == 1  → fresca (verde)
+      - fresh == 0  → usada  (violeta)
 
-    Heurística: detectamos cambio de velocidad entre frames consecutivos.
-    Si cambia velocidad Y está muy cerca del centro, es colisión con obstáculo.
+    Devuelve, por frame, un array booleano `state` donde:
+      - state[i] = True  → usada (violeta)
+      - state[i] = False → fresca (verde)
     """
-    if not frames:
-        return []
-
-    n_particles = len(frames[0]["x"])
-    # estado[i] = True → usada (violeta), False → fresca (verde)
-    state = np.zeros(n_particles, dtype=bool)
-    all_states = []
-
-    prev = frames[0]
-    all_states.append(state.copy())
-
-    for frame in frames[1:]:
-        x, y   = frame["x"],  frame["y"]
-        vx, vy = frame["vx"], frame["vy"]
-        px, py   = prev["x"],  prev["y"]
-        pvx, pvy = prev["vx"], prev["vy"]
-
-        # velocidad cambió → hubo colisión
-        speed_changed = (np.abs(vx - pvx) > 1e-9) | (np.abs(vy - pvy) > 1e-9)
-
-        dist_center = np.sqrt(x**2 + y**2)
-
-        # colisión con obstáculo central: velocidad cambió Y está muy cerca del centro
-        hit_inner = speed_changed & (dist_center < (R_INNER + PARTICLE_R + 2.0))
-
-        # aplicar cambio de estado: fresca → usada si choca con obstáculo
-        # Una vez usada, se queda usada (nunca vuelve a cambiar)
-        state[hit_inner & ~state] = True
-
-        all_states.append(state.copy())
-        prev = frame
-
-    return all_states
+    return [frame["fresh"] == 0 for frame in frames]
 
 
 def build_animation(frames, all_states, interval_ms=50):
@@ -277,8 +251,14 @@ def main():
         description="Animación Sistema 1 – Scanning Rate (recinto circular)")
     parser.add_argument(
         "output_file", nargs="?",
-        default="outputs/sim_circular/output.txt",
+        default=None,
         help="Ruta al archivo output.txt generado por la simulación Java")
+    parser.add_argument(
+        "--N", type=int, default=None,
+        help="Selecciona el N del run: runs/N<N>/run_<run>/output.txt")
+    parser.add_argument(
+        "--run", type=int, default=None,
+        help="Selecciona el número de run (default: primero disponible)")
     parser.add_argument(
         "--save", metavar="FILE",
         help="Guardar animación en archivo (.mp4 o .gif)")
@@ -286,12 +266,33 @@ def main():
         "--interval", type=int, default=25,
         help="Intervalo entre frames en ms (default: 25)")
     parser.add_argument(
-        "--fps", type=int, default=10,
+        "--fps", type=int, default=2,
         help="FPS para el video guardado (default: 200)")
     parser.add_argument(
         "--skip", type=int, default=2,
         help="Mostrar 1 de cada N frames (default: 2)")
     args = parser.parse_args()
+
+    # ── Resolver la ruta del archivo ────────────────────────────────────────
+    if args.output_file is not None:
+        output_file = args.output_file
+    elif args.N is not None:
+        base = os.path.join("runs", f"N{args.N}")
+        if args.run is not None:
+            output_file = os.path.join(base, f"run_{args.run}", "output.txt")
+        else:
+            # primer run disponible para ese N
+            runs = sorted(d for d in (os.listdir(base) if os.path.isdir(base) else [])
+                          if d.startswith("run_"))
+            if not runs:
+                print(f"[ERROR] No se encontraron runs en: {base}")
+                sys.exit(1)
+            output_file = os.path.join(base, runs[0], "output.txt")
+            print(f"[INFO] --run no especificado; usando '{runs[0]}'")
+    else:
+        output_file = "outputs/sim_circular/output.txt"
+
+    args.output_file = output_file
 
     # ── Cargar datos ────────────────────────────────────────────────────────
     if not os.path.isfile(args.output_file):

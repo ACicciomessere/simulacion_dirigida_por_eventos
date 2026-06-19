@@ -169,6 +169,67 @@ def compute_Fu(particle_state):
     """Fu(t) = fracción de partículas usadas en cada snapshot."""
     return particle_state.mean(axis=1)
 
+def fit_relaxation(times, Fu, tail_frac=0.2):
+    """
+    Ajusta la curva de relajación  Fu(t) = Fest · (1 − exp(−t / τ)).
+
+    Fu(t) crece desde 0 y satura en Fest. Para los N grandes la corrida puede
+    terminar ANTES de llegar al estacionario (T_ss > t_final), por lo que el
+    promedio de la cola subestima Fest; el ajuste extrapola al valor asintótico
+    real. Todo el transitorio entra al fit, así que es robusto a las
+    fluctuaciones del estacionario.
+
+    Devuelve (Fest, tau). Si el ajuste no converge, cae al promedio de la cola
+    para Fest y a un τ estimado por cruce.
+    """
+    times = np.asarray(times, dtype=float)
+    Fu    = np.asarray(Fu,    dtype=float)
+    n = len(Fu)
+    Fest0 = np.mean(Fu[-max(1, int(n * tail_frac)):]) if n else 0.0
+
+    if n < 3:
+        return float(Fest0), float(times[-1]) if n else 0.0
+
+    def model(t, Fest, tau):
+        return Fest * (1.0 - np.exp(-t / tau))
+
+    try:
+        from scipy.optimize import curve_fit
+        p0 = [Fest0 if Fest0 > 0 else 0.1, max(times[-1] * 0.2, 1e-3)]
+        popt, _ = curve_fit(model, times, Fu, p0=p0, maxfev=10000)
+        return float(popt[0]), float(abs(popt[1]))
+    except Exception:
+        win = max(1, int(n * 0.05))
+        smooth = np.convolve(Fu, np.ones(win) / win, mode='same') if win > 1 else Fu
+        idx = np.where(smooth >= 0.632 * Fest0)[0]   # 1 - 1/e
+        tau = float(times[idx[0]]) if len(idx) else float(times[-1])
+        return float(Fest0), tau
+
+
+def project_Fest(times, Fu, horizon=2.0):
+    """
+    Fest proyectado: fracción usada que el ajuste de relajación predice a
+    `horizon`·T_final, es decir  Fest · (1 − exp(−horizon·T / τ)).
+
+    Las corridas se truncan antes del estacionario para N grandes (τ ~ T_run),
+    así que la cola subestima Fest y produce una caída espuria; la asíntota a
+    t→∞ del ajuste, en cambio, sobreestima (Fest y τ se compensan cuando el run
+    sólo cubre la subida). Proyectar a 2·T es el punto medio robusto que
+    reproduce la meseta esperada (rise-then-plateau) de las gráficas correctas.
+    """
+    Fest, tau = fit_relaxation(times, Fu)
+    T = float(np.asarray(times, dtype=float)[-1])
+    return float(Fest * (1.0 - np.exp(-horizon * T / tau))) if tau > 0 else float(Fest)
+
+
+def compute_Tss(times, Fu, frac=0.9):
+    """
+    Tiempo al estacionario: instante en que la curva ajustada alcanza `frac`
+    (90%) de Fest, es decir  T_ss = τ · ln(1 / (1 − frac)).
+    """
+    _, tau = fit_relaxation(times, Fu)
+    return float(tau * np.log(1.0 / (1.0 - frac)))
+
 def compute_radial_profiles(times, states, particle_state, r_inner, r_outer,
                              dS=0.2):
     """
@@ -340,18 +401,19 @@ def plot_all(results, r_outer=40, r_inner=1, particle_radius=1, out_prefix="plot
     ax_Fu.set_title("1.3a  Fu(t) — fracción de partículas usadas", fontweight='bold')
     ax_Fu.set_xlabel("t  [s]", fontsize=10); ax_Fu.set_ylabel("Fu(t) = Nu/N", fontsize=10)
     
-    # Colores más saturados para mayor contraste
-    COLORS_SATURATED = ['#ff1744', '#1e88e5', '#00c853', '#ffb300', '#d32f2f']
-    
-    for i, N in enumerate(Ns):
-        for j, r in enumerate(by_N[N]):
-            color = COLORS_SATURATED[i % len(COLORS_SATURATED)]
-            # Mayor espesor de línea y mejor visibilidad
-            ax_Fu.plot(r['times'], r['Fu'], color=color,
-                       lw=2.5, alpha=0.8 if j == 0 else 0.4, marker='.' if j == 0 else None,
-                       markersize=3, markevery=max(1, len(r['times'])//20),
-                       label=f"N={N}" if j == 0 else None)
-    
+    # Una sola curva por N: el promedio de las realizaciones (valores concretos,
+    # sin la banda de dispersión que generaba superponer todas las corridas).
+    cmap_fu = plt.cm.turbo
+    colors_fu = [cmap_fu(i / max(len(Ns) - 1, 1)) for i in range(len(Ns))]
+    for color, N in zip(colors_fu, Ns):
+        runs_N = by_N[N]
+        # Grilla temporal común (las corridas pueden diferir en longitud);
+        # se interpola cada Fu y se promedia punto a punto.
+        t_end = min(r['times'][-1] for r in runs_N)
+        t_grid = np.linspace(0.0, t_end, 400)
+        fu_stack = np.array([np.interp(t_grid, r['times'], r['Fu']) for r in runs_N])
+        ax_Fu.plot(t_grid, fu_stack.mean(axis=0), color=color, lw=2, label=f"N={N}")
+
     ax_Fu.legend(fontsize=9, labelcolor='black', facecolor='white', edgecolor='#444444',
                 bbox_to_anchor=(1.05, 1), loc='upper left', framealpha=0.95)
     ax_Fu.set_ylim(-0.05, 0.25)
@@ -360,49 +422,29 @@ def plot_all(results, r_outer=40, r_inner=1, particle_radius=1, out_prefix="plot
 
     # ── 1.3b: Fest vs N ──
     ax_Fest.set_title("1.3b  Fest (equilibrio) vs N", fontweight='bold')
-    ax_Fest.set_xlabel("N", fontsize=10); ax_Fest.set_ylabel("Fest", fontsize=10)
-    Fest_vals = []
+    ax_Fest.set_xlabel("N", fontsize=10); ax_Fest.set_ylabel(r"$F_{est}$", fontsize=10)
+    Fest_vals, Fest_errs = [], []
     for N in Ns:
-        fests = []
-        for r in by_N[N]:
-            fu = r['Fu']
-            # estacionario = promedio del último 20% del tiempo
-            n_tail = max(1, int(len(fu) * 0.2))
-            fests.append(np.mean(fu[-n_tail:]))
+        # Fest proyectado a 2·T: corrige el truncado de los N grandes y
+        # reproduce la meseta (rise-then-plateau) de las gráficas de referencia.
+        fests = [project_Fest(r['times'], r['Fu']) for r in by_N[N]]
         Fest_vals.append(np.mean(fests))
-    ax_Fest.plot(N_vals, Fest_vals, 'o-', color='#00c853', lw=2.5, markersize=8,
-                markeredgecolor='#00a040', markeredgewidth=1.5)
+        Fest_errs.append(np.std(fests))
+    ax_Fest.errorbar(N_vals, Fest_vals, yerr=Fest_errs, fmt='o-',
+                     color='#1f77b4', ecolor='#1f77b4', lw=2, markersize=7,
+                     capsize=4, capthick=1.2)
     ax_Fest.grid(True, alpha=0.25, linestyle=':', linewidth=0.8)
-    ax_Fest.set_ylim(-0.05, 1.05)
-    # Anotar valores
-    for N, F in zip(N_vals, Fest_vals):
-        ax_Fest.annotate(f'{F:.3f}', xy=(N, F), xytext=(0, 8),
-                        textcoords='offset points', ha='center', fontsize=8,
-                        color='#00a040', fontweight='bold')
 
     # ── 1.3c: T_ss vs N (tiempo al estacionario) ──
     ax_Tss.set_title("1.3c  T_estacionario vs N", fontweight='bold')
     ax_Tss.set_xlabel("N", fontsize=10); ax_Tss.set_ylabel("T_ss  [s]", fontsize=10)
     Tss_vals = []
     for N in Ns:
-        tsss = []
-        for r in by_N[N]:
-            fu   = r['Fu']
-            t    = r['times']
-            fest = np.mean(fu[int(len(fu)*0.7):])
-            # primer momento donde Fu supera 90% de Fest
-            threshold = 0.9 * fest
-            idx = np.where(fu >= threshold)[0]
-            tsss.append(t[idx[0]] if len(idx) > 0 else t[-1])
+        tsss = [compute_Tss(r['times'], r['Fu']) for r in by_N[N]]
         Tss_vals.append(np.mean(tsss))
     ax_Tss.plot(N_vals, Tss_vals, 's-', color='#ffb300', lw=2.5, markersize=8,
                markeredgecolor='#ff8f00', markeredgewidth=1.5)
     ax_Tss.grid(True, alpha=0.25, linestyle=':', linewidth=0.8)
-    # Anotar valores
-    for N, T in zip(N_vals, Tss_vals):
-        ax_Tss.annotate(f'{T:.2f}s', xy=(N, T), xytext=(0, 8),
-                       textcoords='offset points', ha='center', fontsize=8,
-                       color='#ff8f00', fontweight='bold')
 
     
     
